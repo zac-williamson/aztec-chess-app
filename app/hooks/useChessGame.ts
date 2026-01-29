@@ -431,17 +431,14 @@ export function useChessGame(
         lastBlockRef.current = receipt.blockNumber!;
 
         // Check if game ended - game_ended might be a BigInt/Field
-        const gameEnded = newGameState.game_ended !== 0n && newGameState.game_ended !== 0;
+        // Note: We cannot check if opponent's king exists due to fog of war -
+        // the king may be hidden. Only rely on the contract's game_ended flag.
+        const gameEnded = newGameState.game_ended === true ||
+          (typeof newGameState.game_ended === 'bigint' && newGameState.game_ended !== 0n) ||
+          (typeof newGameState.game_ended === 'number' && newGameState.game_ended !== 0);
         console.log("Game ended check after move:", { raw: newGameState.game_ended, parsed: gameEnded });
 
-        // Also check if opponent's king is still on the board (failsafe)
-        const opponentPlayerId = playerId === 0 ? 1 : 0;
-        const opponentKingExists = newUserState.game_state.some(
-          (sq: any) => Number(sq.id) === PIECE_IDS.KING && Number(sq.player_id) === opponentPlayerId
-        );
-        console.log("Opponent king exists:", opponentKingExists);
-
-        if (gameEnded || !opponentKingExists) {
+        if (gameEnded) {
           setPhase("game_over");
           setStatusMessage("Game over! You captured the opponent's king!");
         } else {
@@ -520,16 +517,14 @@ export function useChessGame(
       lastBlockRef.current = currentBlock;
 
       // Check if game ended - game_ended might be a BigInt/Field
-      const gameEnded = newGameState.game_ended !== 0n && newGameState.game_ended !== 0;
+      // Note: We cannot reliably check king existence due to fog of war.
+      // Only rely on the contract's game_ended flag.
+      const gameEnded = newGameState.game_ended === true ||
+          (typeof newGameState.game_ended === 'bigint' && newGameState.game_ended !== 0n) ||
+          (typeof newGameState.game_ended === 'number' && newGameState.game_ended !== 0);
       console.log("Game ended check:", { raw: newGameState.game_ended, parsed: gameEnded });
 
-      // Also check if our king is still on the board (failsafe)
-      const myKingExists = newUserState.game_state.some(
-        (sq: any) => Number(sq.id) === PIECE_IDS.KING && Number(sq.player_id) === myPlayerId
-      );
-      console.log("My king exists:", myKingExists);
-
-      if (gameEnded || !myKingExists) {
+      if (gameEnded) {
         setPhase("game_over");
         setStatusMessage("Game over! Your king was captured.");
       } else {
