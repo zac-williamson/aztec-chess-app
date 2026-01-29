@@ -7,15 +7,10 @@ import {
 } from "../artifacts/FogOfWarChess";
 import { getDecodedPublicEvents } from "@aztec/aztec.js/events";
 import type { AztecAddress } from "@aztec/aztec.js/addresses";
+import { Fr } from "@aztec/aztec.js/fields";
 import type { GamePhase, PlayerRole } from "../lib/types";
 import { PIECE_IDS } from "../lib/types";
 import { computeClientVision } from "../lib/chessUtils";
-
-// Fixed secrets for MVP (in production these should be random)
-const WHITE_ENCRYPT_SECRET = 1;
-const WHITE_MASK_SECRET = 2;
-const BLACK_ENCRYPT_SECRET = 3;
-const BLACK_MASK_SECRET = 4;
 
 interface UseChessGameReturn {
   phase: GamePhase;
@@ -65,6 +60,12 @@ export function useChessGame(
   const gameStateRef = useRef<any>(null);
   const userStateRef = useRef<any>(null);
 
+  // Store player's own secrets (generated randomly)
+  const encryptSecretRef = useRef<Fr | null>(null);
+  const maskSecretRef = useRef<Fr | null>(null);
+  // Store opponent's secret hashes (fetched from events/storage)
+  const opponentSecretHashesRef = useRef<{ encrypt: Fr; mask: Fr } | null>(null);
+
   // Keep refs in sync with state
   useEffect(() => {
     gameStateRef.current = gameState;
@@ -99,6 +100,12 @@ export function useChessGame(
         const addr = contract.address.toString();
         setContractAddress(addr);
 
+        // Generate random secrets for white
+        const encryptSecret = Fr.random();
+        const maskSecret = Fr.random();
+        encryptSecretRef.current = encryptSecret;
+        maskSecretRef.current = maskSecret;
+
         // Initialize states
         setStatusMessage("Initializing game state...");
         let gs = await contract.methods
@@ -108,29 +115,24 @@ export function useChessGame(
           .__empty_white_state()
           .simulate({ from: address });
 
-        // Set secrets
-        ws.encrypt_secret = WHITE_ENCRYPT_SECRET;
-        ws.mask_secret = WHITE_MASK_SECRET;
+        // Set secrets in user state
+        ws.encrypt_secret = encryptSecret;
+        ws.mask_secret = maskSecret;
 
-        // Commit white's secrets to game state
+        // Commit white's secrets to game state (black's will be added after they join)
         gs = await contract.methods
-          .__commit_to_user_secrets(gs, WHITE_ENCRYPT_SECRET, WHITE_MASK_SECRET, 0)
-          .simulate({ from: address });
-
-        // Pre-commit black's secrets too (white needs to know the full game state)
-        gs = await contract.methods
-          .__commit_to_user_secrets(gs, BLACK_ENCRYPT_SECRET, BLACK_MASK_SECRET, 1)
+          .__commit_to_user_secrets(gs, encryptSecret, maskSecret, 0)
           .simulate({ from: address });
 
         // Create game on-chain
         setPhase("creating");
         setStatusMessage("Creating game on-chain...");
         const receipt = await contract.methods
-          .create_game_private(ws.encrypt_secret, ws.mask_secret, password)
+          .create_game_private(encryptSecret, maskSecret, password)
           .send({ from: address })
           .wait();
 
-        // Parse NewGame event to get game_id
+        // Parse NewGame event to get game_id and our secret hashes
         const newGameEvents = await getDecodedPublicEvents<NewGame>(
           node,
           FogOfWarChessContract.events.NewGame,
@@ -198,6 +200,38 @@ export function useChessGame(
         contractRef.current = contract;
         setContractAddress(contractAddr);
 
+        // Generate random secrets for black
+        const encryptSecret = Fr.random();
+        const maskSecret = Fr.random();
+        encryptSecretRef.current = encryptSecret;
+        maskSecretRef.current = maskSecret;
+
+        // Fetch NewGame event to get white's secret hashes
+        setStatusMessage("Fetching game info from chain...");
+        const currentBlock = await node.getBlockNumber();
+        const newGameEvents = await getDecodedPublicEvents<NewGame>(
+          node,
+          FogOfWarChessContract.events.NewGame,
+          1, // Search from beginning
+          currentBlock + 1
+        );
+
+        // Find the event for our target game
+        const gameEvent = newGameEvents.find(
+          (e) => Number(e.game_id) === targetGameId
+        );
+        if (!gameEvent) {
+          throw new Error(
+            `Game ${targetGameId} not found. Has White created the game?`
+          );
+        }
+
+        // Extract white's secret hashes from the event
+        const whiteSecretHashes = [
+          gameEvent.initial_state[0], // encrypt_secret_hash
+          gameEvent.initial_state[1], // mask_secret_hash
+        ];
+
         // Initialize states
         setStatusMessage("Initializing game state...");
         let gs = await contract.methods
@@ -207,30 +241,26 @@ export function useChessGame(
           .__empty_black_state()
           .simulate({ from: address });
 
-        // Set secrets
-        bs.encrypt_secret = BLACK_ENCRYPT_SECRET;
-        bs.mask_secret = BLACK_MASK_SECRET;
+        // Set secrets in user state
+        bs.encrypt_secret = encryptSecret;
+        bs.mask_secret = maskSecret;
 
-        // Commit both players' secrets to game state (black needs the full picture)
+        // Commit both players' secrets to game state
+        // Use white's secret hashes (we don't know their actual secrets)
+        gs.mpc_state.user_encrypt_secret_hashes[0] = whiteSecretHashes[0];
+        gs.mpc_state.user_mask_secret_hashes[0] = whiteSecretHashes[1];
+        // Commit black's secrets
         gs = await contract.methods
-          .__commit_to_user_secrets(gs, WHITE_ENCRYPT_SECRET, WHITE_MASK_SECRET, 0)
-          .simulate({ from: address });
-        gs = await contract.methods
-          .__commit_to_user_secrets(gs, BLACK_ENCRYPT_SECRET, BLACK_MASK_SECRET, 1)
+          .__commit_to_user_secrets(gs, encryptSecret, maskSecret, 1)
           .simulate({ from: address });
 
         // Join game on-chain
         setStatusMessage("Joining game on-chain...");
-        const whiteSecretHashes = [
-          gs.mpc_state.user_encrypt_secret_hashes[0],
-          gs.mpc_state.user_mask_secret_hashes[0],
-        ];
-
         const receipt = await contract.methods
           .join_game_private(
             targetGameId,
-            bs.encrypt_secret,
-            bs.mask_secret,
+            encryptSecret,
+            maskSecret,
             whiteSecretHashes,
             password
           )
@@ -256,10 +286,64 @@ export function useChessGame(
 
   // ─── White starts playing (after black joins) ───
 
-  const startPlaying = useCallback(() => {
-    setPhase("playing");
-    setStatusMessage("Your turn! Select a piece to move.");
-  }, []);
+  const startPlaying = useCallback(async () => {
+    if (!node || !contractRef.current || !address || gameId === null) {
+      setPhase("playing");
+      setStatusMessage("Your turn! Select a piece to move.");
+      return;
+    }
+
+    try {
+      setStatusMessage("Fetching opponent's secret hashes...");
+
+      // Read game_secret_hashes storage to get black's secret hashes
+      // Storage slot 2 is game_secret_hashes Map base slot
+      // For Map<u32, T>, the derived slot is poseidon2(base_slot, key)
+      const contract = contractRef.current;
+      const { poseidon2Hash } = await import("@aztec/foundation/crypto/poseidon");
+      const baseSlot = new Fr(2n);
+      const derivedSlot = await poseidon2Hash([baseSlot, new Fr(gameId)]);
+
+      // Read 4 fields from storage (white_encrypt, white_mask, black_encrypt, black_mask)
+      const secretHashes: Fr[] = [];
+      for (let i = 0; i < 4; i++) {
+        const slot = derivedSlot.add(new Fr(i));
+        const value = await node.getPublicStorageAt(
+          contract.address,
+          slot
+        );
+        secretHashes.push(value);
+      }
+
+      // Check if black has joined (black's hashes should be non-zero)
+      if (secretHashes[2].equals(Fr.ZERO) || secretHashes[3].equals(Fr.ZERO)) {
+        setStatusMessage("Waiting for opponent to join...");
+        return;
+      }
+
+      // Store black's secret hashes
+      opponentSecretHashesRef.current = {
+        encrypt: secretHashes[2],
+        mask: secretHashes[3],
+      };
+
+      // Update game state with black's secret hashes
+      const gs = gameStateRef.current;
+      if (gs) {
+        gs.mpc_state.user_encrypt_secret_hashes[1] = secretHashes[2];
+        gs.mpc_state.user_mask_secret_hashes[1] = secretHashes[3];
+        setGameState({ ...gs });
+      }
+
+      setPhase("playing");
+      setStatusMessage("Your turn! Select a piece to move.");
+    } catch (e) {
+      console.error("Error fetching opponent secrets:", e);
+      // Fall back to just starting
+      setPhase("playing");
+      setStatusMessage("Your turn! Select a piece to move.");
+    }
+  }, [node, address, gameId]);
 
   // ─── Make a move ───
 
