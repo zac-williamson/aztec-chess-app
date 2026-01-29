@@ -206,30 +206,23 @@ export function useChessGame(
         encryptSecretRef.current = encryptSecret;
         maskSecretRef.current = maskSecret;
 
-        // Fetch NewGame event to get white's secret hashes
+        // Fetch white's secret hashes using the contract method
         setStatusMessage("Fetching game info from chain...");
-        const currentBlock = await node.getBlockNumber();
-        const newGameEvents = await getDecodedPublicEvents<NewGame>(
-          node,
-          FogOfWarChessContract.events.NewGame,
-          1, // Search from beginning
-          currentBlock + 1
-        );
+        const secretHashes = await contract.methods
+          .__get_game_secret_hashes(targetGameId)
+          .simulate({ from: address });
 
-        // Find the event for our target game
-        const gameEvent = newGameEvents.find(
-          (e) => Number(e.game_id) === targetGameId
-        );
-        if (!gameEvent) {
+        // Check if game exists (white's hashes should be non-zero)
+        if (secretHashes[0].equals(Fr.ZERO) && secretHashes[1].equals(Fr.ZERO)) {
           throw new Error(
             `Game ${targetGameId} not found. Has White created the game?`
           );
         }
 
-        // Extract white's secret hashes from the event
+        // Extract white's secret hashes
         const whiteSecretHashes = [
-          gameEvent.initial_state[0], // encrypt_secret_hash
-          gameEvent.initial_state[1], // mask_secret_hash
+          secretHashes[0], // white encrypt_secret_hash
+          secretHashes[1], // white mask_secret_hash
         ];
 
         // Initialize states
@@ -296,27 +289,15 @@ export function useChessGame(
     try {
       setStatusMessage("Fetching opponent's secret hashes...");
 
-      // Read game_secret_hashes storage to get black's secret hashes
-      // Storage slot 2 is game_secret_hashes Map base slot
-      // For Map<u32, T>, the derived slot is poseidon2(base_slot, key)
       const contract = contractRef.current;
-      const { poseidon2Hash } = await import("@aztec/foundation/crypto/poseidon");
-      const baseSlot = new Fr(2n);
-      const derivedSlot = await poseidon2Hash([baseSlot, new Fr(gameId)]);
 
-      // Read 4 fields from storage (white_encrypt, white_mask, black_encrypt, black_mask)
-      const secretHashes: Fr[] = [];
-      for (let i = 0; i < 4; i++) {
-        const slot = derivedSlot.add(new Fr(i));
-        const value = await node.getPublicStorageAt(
-          contract.address,
-          slot
-        );
-        secretHashes.push(value);
-      }
+      // Use the contract method to get secret hashes
+      const secretHashes = await contract.methods
+        .__get_game_secret_hashes(gameId)
+        .simulate({ from: address });
 
       // Check if black has joined (black's hashes should be non-zero)
-      if (secretHashes[2].equals(Fr.ZERO) || secretHashes[3].equals(Fr.ZERO)) {
+      if (secretHashes[2].equals(Fr.ZERO)) {
         setStatusMessage("Waiting for opponent to join...");
         return;
       }
@@ -343,7 +324,7 @@ export function useChessGame(
       setPhase("playing");
       setStatusMessage("Your turn! Select a piece to move.");
     }
-  }, [node, address, gameId]);
+  }, [address, gameId]);
 
   // ─── Make a move ───
 
