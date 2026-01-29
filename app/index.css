@@ -1,0 +1,391 @@
+/* ─── Reset & Base ─── */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 40px;
+}
+
+#root {
+  width: 100%;
+  max-width: 800px;
+  padding: 0 20px;
+}
+
+/* ─── Screens ─── */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+h2 {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.subtitle {
+  color: #8b949e;
+  margin-top: -12px;
+}
+
+/* ─── Connect Screen ─── */
+
+.connect-info {
+  text-align: center;
+  max-width: 500px;
+  line-height: 1.6;
+  color: #8b949e;
+}
+
+.connect-buttons {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+/* ─── Buttons ─── */
+
+.btn {
+  padding: 12px 28px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-white {
+  background: #eeeed2;
+  color: #1a1a2e;
+}
+
+.btn-black {
+  background: #4a4a5a;
+  color: #eeeed2;
+}
+
+.btn-primary {
+  background: #238636;
+  color: #fff;
+}
+
+/* ─── Forms ─── */
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.form-group label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: #8b949e;
+}
+
+.form-group input {
+  padding: 10px 12px;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  background: #161b22;
+  color: #e6edf3;
+  font-size: 1rem;
+  font-family: "SF Mono", "Fira Code", monospace;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #388bfd;
+}
+
+/* ─── Info boxes ─── */
+
+.game-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.info-box {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 500px;
+}
+
+.info-box code {
+  background: #0d1117;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.note {
+  color: #8b949e;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.success {
+  color: #3fb950;
+  font-weight: 600;
+}
+
+/* ─── Status & Errors ─── */
+
+.status-bar {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 0.9rem;
+  width: 100%;
+  max-width: 500px;
+}
+
+.error-bar {
+  background: #3d1117;
+  border: 1px solid #f85149;
+  border-radius: 6px;
+  padding: 10px 16px;
+  color: #f85149;
+  text-align: center;
+  font-size: 0.9rem;
+  width: 100%;
+  max-width: 500px;
+}
+
+/* ─── Game Header ─── */
+
+.game-header {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-info-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.role-badge {
+  background: #30363d;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.turn-indicator {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.move-counter,
+.game-id {
+  color: #8b949e;
+  font-size: 0.85rem;
+}
+
+/* ─── Chessboard ─── */
+
+.board-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.board-with-labels {
+  display: flex;
+  align-items: stretch;
+}
+
+.rank-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  padding-right: 6px;
+}
+
+.rank-label {
+  font-size: 0.75rem;
+  color: #8b949e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 70px;
+}
+
+.file-labels {
+  display: flex;
+  padding-top: 4px;
+}
+
+.rank-label-spacer {
+  width: 26px;
+}
+
+.file-label {
+  font-size: 0.75rem;
+  color: #8b949e;
+  width: 70px;
+  text-align: center;
+}
+
+.board {
+  border: 2px solid #30363d;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.board-row {
+  display: flex;
+}
+
+.square {
+  width: 70px;
+  height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.1s;
+  user-select: none;
+}
+
+.square:hover {
+  filter: brightness(1.1);
+}
+
+.piece {
+  font-size: 44px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.piece-white {
+  color: #fff;
+  text-shadow:
+    -1px -1px 0 #000,
+     1px -1px 0 #000,
+    -1px  1px 0 #000,
+     1px  1px 0 #000,
+     0    0   3px rgba(0, 0, 0, 0.5);
+}
+
+.piece-black {
+  color: #1a1a1a;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* ─── Overlays ─── */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.overlay-content {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 40px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ─── Spinners ─── */
+
+.spinner::before {
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #8b949e;
+  border-top-color: #e6edf3;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.spinner-large {
+  width: 48px;
+  height: 48px;
+  border: 3px solid #30363d;
+  border-top-color: #238636;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─── Loading ─── */
+
+.loading {
+  padding: 40px;
+  text-align: center;
+  color: #8b949e;
+}
