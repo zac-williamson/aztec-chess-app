@@ -370,11 +370,19 @@ export function useChessGame(
 
       try {
         const playerId = role === "white" ? 0 : 1;
+        const opponentPlayerId = playerId === 0 ? 1 : 0;
 
         // Import coordinate conversion
         const { rowColToNoirXY } = await import("../lib/chessUtils");
         const from = rowColToNoirXY(fromRow, fromCol, role);
         const to = rowColToNoirXY(toRow, toCol, role);
+
+        // Check if we're capturing the opponent's king (we can see this before the move)
+        const targetIndex = to.x + to.y * 8;
+        const targetPiece = us.game_state[targetIndex];
+        const capturingOpponentKing =
+          Number(targetPiece.id) === PIECE_IDS.KING &&
+          Number(targetPiece.player_id) === opponentPlayerId;
 
         // Create move data
         const moveData = await contract.methods
@@ -430,15 +438,19 @@ export function useChessGame(
         setMoveCount((prev) => prev + 1);
         lastBlockRef.current = receipt.blockNumber!;
 
-        // Check if game ended - game_ended might be a BigInt/Field
-        // Note: We cannot check if opponent's king exists due to fog of war -
-        // the king may be hidden. Only rely on the contract's game_ended flag.
-        const gameEnded = newGameState.game_ended === true ||
+        // Check if game ended:
+        // 1. We captured opponent's king (we know this client-side from the move)
+        // 2. Contract's game_ended flag is set
+        const gameEndedFlag = newGameState.game_ended === true ||
           (typeof newGameState.game_ended === 'bigint' && newGameState.game_ended !== 0n) ||
           (typeof newGameState.game_ended === 'number' && newGameState.game_ended !== 0);
-        console.log("Game ended check after move:", { raw: newGameState.game_ended, parsed: gameEnded });
+        console.log("Game ended check after move:", {
+          capturingOpponentKing,
+          gameEndedFlag,
+          raw: newGameState.game_ended
+        });
 
-        if (gameEnded) {
+        if (capturingOpponentKing || gameEndedFlag) {
           setPhase("game_over");
           setStatusMessage("Game over! You captured the opponent's king!");
         } else {
