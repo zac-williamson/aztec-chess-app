@@ -26,6 +26,7 @@
     "stream-browserify": "^3.0.0",
     "style-loader": "^4.0.0",
     "ts-loader": "^9.5.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.0",
     "util": "^0.12.5",
     "webpack": "^5.97.0",

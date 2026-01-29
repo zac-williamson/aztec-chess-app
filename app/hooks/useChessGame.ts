@@ -118,6 +118,7 @@ export function useChessGame(
         // Set secrets in user state
         ws.encrypt_secret = encryptSecret;
         ws.mask_secret = maskSecret;
+      console.log('old white state encrypt mask secrets = ', ws.encrypt_secret, ws.mask_secret);
 
         // Commit white's secrets to game state (black's will be added after they join)
         gs = await contract.methods
@@ -211,9 +212,10 @@ export function useChessGame(
         const secretHashes = await contract.methods
           .__get_game_secret_hashes(targetGameId)
           .simulate({ from: address });
-
+        console.log("secret hashes: ", secretHashes, secretHashes[0]);
         // Check if game exists (white's hashes should be non-zero)
-        if (secretHashes[0].equals(Fr.ZERO) && secretHashes[1].equals(Fr.ZERO)) {
+        // Values from simulate() are bigints, not Fr objects
+        if (BigInt(secretHashes[0]) === 0n && BigInt(secretHashes[1]) === 0n) {
           throw new Error(
             `Game ${targetGameId} not found. Has White created the game?`
           );
@@ -297,7 +299,8 @@ export function useChessGame(
         .simulate({ from: address });
 
       // Check if black has joined (black's hashes should be non-zero)
-      if (secretHashes[2].equals(Fr.ZERO)) {
+      // Values from simulate() are bigints, not Fr objects
+      if (BigInt(secretHashes[2]) === 0n) {
         setStatusMessage("Waiting for opponent to join...");
         return;
       }
@@ -308,13 +311,33 @@ export function useChessGame(
         mask: secretHashes[3],
       };
 
-      // Update game state with black's secret hashes
-      const gs = gameStateRef.current;
-      if (gs) {
-        gs.mpc_state.user_encrypt_secret_hashes[1] = secretHashes[2];
-        gs.mpc_state.user_mask_secret_hashes[1] = secretHashes[3];
-        setGameState({ ...gs });
-      }
+      console.log('secret hashes = ', secretHashes);
+
+      // Rebuild game state from scratch to match what the contract computed
+      // when black joined. The contract creates a fresh empty_game_state()
+      // and sets both players' hashes, so we must do the same.
+      setStatusMessage("Initializing game state...");
+      let gs = await contract.methods
+        .__empty_game_state()
+        .simulate({ from: address });
+
+      // Set white's secret hashes (our own)
+      gs.mpc_state.user_encrypt_secret_hashes[0] = secretHashes[0];
+      gs.mpc_state.user_mask_secret_hashes[0] = secretHashes[1];
+      // Set black's secret hashes
+      gs.mpc_state.user_encrypt_secret_hashes[1] = secretHashes[2];
+      gs.mpc_state.user_mask_secret_hashes[1] = secretHashes[3];
+
+      // Also rebuild user state with our secrets
+      const ws = await contract.methods
+        .__empty_white_state()
+        .simulate({ from: address });
+      ws.encrypt_secret = encryptSecretRef.current;
+      ws.mask_secret = maskSecretRef.current;
+
+      console.log('new white state encrypt mask secrets = ', ws.encrypt_secret, ws.mask_secret);
+      setGameState({ ...gs });
+      setUserState({ ...ws });
 
       setPhase("playing");
       setStatusMessage("Your turn! Select a piece to move.");
