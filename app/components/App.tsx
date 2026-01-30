@@ -35,7 +35,6 @@ export function App() {
   // Phase 2: Lobby (create/join game)
   if (
     game.phase === "lobby" ||
-    game.phase === "deploying" ||
     game.phase === "creating" ||
     game.phase === "waiting_opponent" ||
     game.phase === "joining"
@@ -48,7 +47,7 @@ export function App() {
         gameId={game.gameId}
         statusMessage={game.statusMessage}
         error={game.error}
-        onCreateGame={game.deployAndCreateGame}
+        onCreateGame={game.createGame}
         onJoinGame={game.joinGame}
         onStartPlaying={game.startPlaying}
       />

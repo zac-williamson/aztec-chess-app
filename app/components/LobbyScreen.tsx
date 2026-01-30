@@ -9,7 +9,7 @@ interface LobbyScreenProps {
   statusMessage: string;
   error: string | null;
   onCreateGame: (password: number) => void;
-  onJoinGame: (contractAddr: string, gameId: number, password: number) => void;
+  onJoinGame: (gameId: number, password: number) => void;
   onStartPlaying: () => void;
 }
 
@@ -25,12 +25,10 @@ export function LobbyScreen({
   onStartPlaying,
 }: LobbyScreenProps) {
   const [password, setPassword] = useState("3");
-  const [joinContractAddr, setJoinContractAddr] = useState("");
   const [joinGameId, setJoinGameId] = useState("0");
   const [joinPassword, setJoinPassword] = useState("3");
 
-  const isBusy =
-    phase === "deploying" || phase === "creating" || phase === "joining";
+  const isBusy = phase === "creating" || phase === "joining";
 
   if (role === "white") {
     return (
@@ -101,16 +99,6 @@ export function LobbyScreen({
       {phase === "lobby" && (
         <div className="form-group">
           <label>
-            Contract address:
-            <input
-              type="text"
-              value={joinContractAddr}
-              onChange={(e) => setJoinContractAddr(e.target.value)}
-              placeholder="0x..."
-              disabled={isBusy}
-            />
-          </label>
-          <label>
             Game ID:
             <input
               type="number"
@@ -131,13 +119,9 @@ export function LobbyScreen({
           <button
             className="btn btn-primary"
             onClick={() =>
-              onJoinGame(
-                joinContractAddr,
-                Number(joinGameId),
-                Number(joinPassword)
-              )
+              onJoinGame(Number(joinGameId), Number(joinPassword))
             }
-            disabled={isBusy || !joinContractAddr}
+            disabled={isBusy}
           >
             Join Game
           </button>

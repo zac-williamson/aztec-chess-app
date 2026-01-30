@@ -11,6 +11,7 @@ import { Fr } from "@aztec/aztec.js/fields";
 import type { GamePhase, PlayerRole } from "../lib/types";
 import { PIECE_IDS } from "../lib/types";
 import { computeClientVision } from "../lib/chessUtils";
+import contractConfig from "../config/contract-address.json";
 
 interface UseChessGameReturn {
   phase: GamePhase;
@@ -23,9 +24,8 @@ interface UseChessGameReturn {
   isMyTurn: boolean;
   statusMessage: string;
   error: string | null;
-  deployAndCreateGame: (password: number) => Promise<void>;
+  createGame: (password: number) => Promise<void>;
   joinGame: (
-    contractAddr: string,
     gameId: number,
     password: number
   ) => Promise<void>;
@@ -82,23 +82,39 @@ export function useChessGame(
         : Number(gameState.move_count) % 2 === 1
       : false;
 
-  // ─── Deploy contract & create game (White player) ───
+  // ─── Create game on pre-deployed contract (White player) ───
 
-  const deployAndCreateGame = useCallback(
+  const createGame = useCallback(
     async (password: number) => {
-      if (!wallet || !address) return;
+      if (!wallet || !address || !node) return;
       setError(null);
 
+      // Check that contract address is configured
+      if (!contractConfig.contractAddress) {
+        setError("No contract address configured. Run 'npx tsx scripts/deploy.ts' first.");
+        return;
+      }
+
       try {
-        // Deploy contract
-        setPhase("deploying");
-        setStatusMessage("Deploying contract...");
-        const contract = await FogOfWarChessContract.deploy(wallet)
-          .send({ from: address })
-          .deployed();
+        // Connect to existing contract
+        setPhase("creating");
+        setStatusMessage("Connecting to chess contract...");
+
+        const { AztecAddress: AztecAddr } = await import("@aztec/aztec.js/addresses");
+        const contractAztecAddr = AztecAddr.fromString(contractConfig.contractAddress);
+
+        // Register contract with this wallet's PXE
+        const contractInstance = await node.getContract(contractAztecAddr);
+        if (!contractInstance) {
+          throw new Error(
+            `Contract not found at ${contractConfig.contractAddress}. Has it been deployed?`
+          );
+        }
+        await wallet.registerContract(contractInstance, FogOfWarChessContractArtifact);
+
+        const contract = FogOfWarChessContract.at(contractAztecAddr, wallet);
         contractRef.current = contract;
-        const addr = contract.address.toString();
-        setContractAddress(addr);
+        setContractAddress(contractConfig.contractAddress);
 
         // Generate random secrets for white
         const encryptSecret = Fr.random();
@@ -118,7 +134,6 @@ export function useChessGame(
         // Set secrets in user state
         ws.encrypt_secret = encryptSecret;
         ws.mask_secret = maskSecret;
-      console.log('old white state encrypt mask secrets = ', ws.encrypt_secret, ws.mask_secret);
 
         // Commit white's secrets to game state (black's will be added after they join)
         gs = await contract.methods
@@ -126,14 +141,13 @@ export function useChessGame(
           .simulate({ from: address });
 
         // Create game on-chain
-        setPhase("creating");
         setStatusMessage("Creating game on-chain...");
         const receipt = await contract.methods
           .create_game_private(encryptSecret, maskSecret, password)
           .send({ from: address })
           .wait();
 
-        // Parse NewGame event to get game_id and our secret hashes
+        // Parse NewGame event to get game_id
         const newGameEvents = await getDecodedPublicEvents<NewGame>(
           node,
           FogOfWarChessContract.events.NewGame,
@@ -151,7 +165,7 @@ export function useChessGame(
         lastBlockRef.current = receipt.blockNumber!;
         setPhase("waiting_opponent");
         setStatusMessage(
-          `Game created! ID: ${gid}. Share contract address and game ID with opponent.`
+          `Game created! ID: ${gid}. Share game ID with opponent.`
         );
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Failed to create game";
@@ -166,9 +180,15 @@ export function useChessGame(
   // ─── Join existing game (Black player) ───
 
   const joinGame = useCallback(
-    async (contractAddr: string, targetGameId: number, password: number) => {
+    async (targetGameId: number, password: number) => {
       if (!wallet || !address) return;
       setError(null);
+
+      // Check that contract address is configured
+      if (!contractConfig.contractAddress) {
+        setError("No contract address configured. Run 'npx tsx scripts/deploy.ts' first.");
+        return;
+      }
 
       try {
         setPhase("joining");
@@ -178,7 +198,7 @@ export function useChessGame(
         const { AztecAddress: AztecAddr } = await import(
           "@aztec/aztec.js/addresses"
         );
-        const contractAztecAddr = AztecAddr.fromString(contractAddr);
+        const contractAztecAddr = AztecAddr.fromString(contractConfig.contractAddress);
 
         // Fetch the contract instance from the Aztec node and register it
         // with this wallet's PXE (each browser tab has its own PXE)
@@ -186,7 +206,7 @@ export function useChessGame(
         const contractInstance = await node.getContract(contractAztecAddr);
         if (!contractInstance) {
           throw new Error(
-            `Contract not found on-chain at address ${contractAddr}. Has White deployed and created a game?`
+            `Contract not found at ${contractConfig.contractAddress}. Has it been deployed?`
           );
         }
         await wallet.registerContract(
@@ -199,7 +219,7 @@ export function useChessGame(
           wallet
         );
         contractRef.current = contract;
-        setContractAddress(contractAddr);
+        setContractAddress(contractConfig.contractAddress);
 
         // Generate random secrets for black
         const encryptSecret = Fr.random();
@@ -585,7 +605,7 @@ export function useChessGame(
     isMyTurn,
     statusMessage,
     error,
-    deployAndCreateGame,
+    createGame,
     joinGame,
     makeMove,
     startPlaying,

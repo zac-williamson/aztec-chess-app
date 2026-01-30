@@ -1,7 +1,6 @@
 export type GamePhase =
   | "connecting"
   | "lobby"
-  | "deploying"
   | "creating"
   | "waiting_opponent"
   | "joining"

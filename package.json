@@ -5,7 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "webpack serve --mode development",
-    "build": "webpack --mode production"
+    "build": "webpack --mode production",
+    "deploy": "tsx scripts/deploy.ts",
+    "test": "tsx scripts/test-game.ts"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   },
   "dependencies": {
     "@aztec/accounts": "3.0.0-devnet.20251212",
