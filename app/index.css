@@ -26,7 +26,7 @@ body {
 
 #root {
   width: 100%;
-  max-width: 900px;
+  max-width: 1200px;
   padding: 0 var(--space-5);
 }
 
@@ -1378,5 +1378,113 @@ code, .mono {
   .captured-list {
     flex: 1;
     justify-content: flex-start;
+  }
+}
+
+/* ─── Game Main Layout with Side Panel ─── */
+
+.game-main-area {
+  display: flex;
+  gap: var(--space-6);
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+}
+
+.game-board-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.game-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--board-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  min-width: 300px;
+  max-width: 320px;
+}
+
+.side-panel-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--board-border);
+}
+
+.side-panel-status h3 {
+  color: var(--aztec-chartreuse);
+  font-size: var(--text-lg);
+  margin: 0;
+}
+
+.side-panel-status p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.spinner-medium {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--board-border);
+  border-top-color: var(--aztec-chartreuse);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.mini-game-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.mini-game-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.flappy-pawn-container {
+  display: flex;
+  justify-content: center;
+}
+
+/* Animation for side panel sliding in */
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+/* Responsive: Stack vertically on smaller screens */
+@media (max-width: 900px) {
+  .game-main-area {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .game-side-panel {
+    min-width: unset;
+    width: 100%;
+    max-width: 560px;
   }
 }

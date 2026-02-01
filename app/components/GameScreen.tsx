@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Chessboard } from "./Chessboard";
+import { FlappyPawn } from "./FlappyPawn";
 import {
   buildBoardFromUserState,
   isOwnPiece,
@@ -45,19 +46,22 @@ const playCuteSound = (type: "yahoo" | "aww") => {
         }, i * 80);
       });
     } else {
-      // Sad descending "Aww" sound
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 440;
-      osc.type = "sine";
-      gain.gain.value = 0.12;
-      osc.start();
-      // Descending pitch
-      osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.4);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-      osc.stop(ctx.currentTime + 0.5);
+      // Sad descending minor arpeggio: C5, G4, Eb4, C4
+      const notes = [523.25, 392.00, 311.13, 261.63];
+      notes.forEach((freq, i) => {
+        setTimeout(() => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = freq;
+          osc.type = "sine";
+          gain.gain.value = 0.15;
+          osc.start();
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+          osc.stop(ctx.currentTime + 0.15);
+        }, i * 100);
+      });
     }
   } catch {
     // Audio playback failed, silently ignore
@@ -188,6 +192,7 @@ export function GameScreen({
   const [viewingMoveIndex, setViewingMoveIndex] = useState<number>(-1); // -1 means viewing current
   const prevIsMyTurnRef = useRef<boolean>(isMyTurn);
   const prevMoveCountRef = useRef<number>(0);
+  const justLostPieceRef = useRef<boolean>(false);
 
   const currentBoard = userState
     ? buildBoardFromUserState(userState, role, confirmedEmptySquares)
@@ -240,6 +245,7 @@ export function GameScreen({
       if (isMyTurn && prevPiecesRef.current.length > 0 && phase === "playing") {
         const lostPieces = findLostPieces(prevPiecesRef.current, currentPieces);
         if (lostPieces.length > 0) {
+          justLostPieceRef.current = true; // Skip "your turn" sound
           playSound("opponentCapture");
           // Track opponent's capture with the actual piece type
           setCapturedPieces(prev => ({
@@ -300,10 +306,14 @@ export function GameScreen({
     }
   }, [phase]);
 
-  // Play notification sound when it becomes your turn
+  // Play notification sound when it becomes your turn (unless we just lost a piece)
   useEffect(() => {
     if (isMyTurn && !prevIsMyTurnRef.current && phase === "playing") {
-      playSound("yourTurn");
+      // Skip if we just lost a piece - the loss sound is enough
+      if (!justLostPieceRef.current) {
+        playSound("yourTurn");
+      }
+      justLostPieceRef.current = false; // Reset for next turn
     }
     prevIsMyTurnRef.current = isMyTurn;
   }, [isMyTurn, phase]);
@@ -479,95 +489,109 @@ export function GameScreen({
         <div className="error-bar animate-slide-up">{error || moveError}</div>
       )}
 
-      {/* Captured pieces display */}
-      <div className="captured-pieces-container">
-        <div className="captured-section">
-          <span className="captured-label">Your captures:</span>
-          <div className="captured-list">
-            {renderCapturedPieces(
-              role === "white" ? capturedPieces.byWhite : capturedPieces.byBlack,
-              role === "white" ? "black" : "white"
-            )}
+      {/* Main game area with board and side panel */}
+      <div className="game-main-area">
+        {/* Left side: Board and controls */}
+        <div className="game-board-section">
+          {/* Captured pieces display */}
+          <div className="captured-pieces-container">
+            <div className="captured-section">
+              <span className="captured-label">Your captures:</span>
+              <div className="captured-list">
+                {renderCapturedPieces(
+                  role === "white" ? capturedPieces.byWhite : capturedPieces.byBlack,
+                  role === "white" ? "black" : "white"
+                )}
+              </div>
+            </div>
+            <div className="captured-section">
+              <span className="captured-label">Opponent's captures:</span>
+              <div className="captured-list">
+                {renderCapturedPieces(
+                  role === "white" ? capturedPieces.byBlack : capturedPieces.byWhite,
+                  role
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="captured-section">
-          <span className="captured-label">Opponent's captures:</span>
-          <div className="captured-list">
-            {renderCapturedPieces(
-              role === "white" ? capturedPieces.byBlack : capturedPieces.byWhite,
-              role
-            )}
-          </div>
-        </div>
-      </div>
 
-      {displayBoard ? (
-        <Chessboard
-          board={displayBoard}
-          selectedSquare={isViewingHistory ? null : selectedSquare}
-          onSquareClick={handleSquareClick}
-          perspective={role}
-        />
-      ) : (
-        <div className="loading">
-          <div className="spinner-large" />
-          <p className="loading-text">Loading board...</p>
-        </div>
-      )}
-
-      {/* Move replay controls */}
-      <div className="move-replay-controls">
-        <button
-          className="btn btn-secondary btn-sm replay-btn"
-          onClick={goBack}
-          disabled={!canGoBack}
-          title="Previous move"
-        >
-          ◀
-        </button>
-        <span className="move-indicator">
-          {isViewingHistory ? (
-            <>Move {displayMoveNumber} <span className="viewing-history">(viewing history)</span></>
+          {displayBoard ? (
+            <Chessboard
+              board={displayBoard}
+              selectedSquare={isViewingHistory ? null : selectedSquare}
+              onSquareClick={handleSquareClick}
+              perspective={role}
+            />
           ) : (
-            <>Move {moveCount}</>
+            <div className="loading">
+              <div className="spinner-large" />
+              <p className="loading-text">Loading board...</p>
+            </div>
           )}
-        </span>
-        <button
-          className="btn btn-secondary btn-sm replay-btn"
-          onClick={goForward}
-          disabled={!canGoForward && isAtCurrentMove}
-          title="Next move"
-        >
-          ▶
-        </button>
-        {isViewingHistory && (
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={goToCurrent}
-            title="Return to current"
-          >
-            Current
-          </button>
+
+          {/* Move replay controls */}
+          <div className="move-replay-controls">
+            <button
+              className="btn btn-secondary btn-sm replay-btn"
+              onClick={goBack}
+              disabled={!canGoBack}
+              title="Previous move"
+            >
+              ◀
+            </button>
+            <span className="move-indicator">
+              {isViewingHistory ? (
+                <>Move {displayMoveNumber} <span className="viewing-history">(viewing history)</span></>
+              ) : (
+                <>Move {moveCount}</>
+              )}
+            </span>
+            <button
+              className="btn btn-secondary btn-sm replay-btn"
+              onClick={goForward}
+              disabled={!canGoForward && isAtCurrentMove}
+              title="Next move"
+            >
+              ▶
+            </button>
+            {isViewingHistory && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={goToCurrent}
+                title="Return to current"
+              >
+                Current
+              </button>
+            )}
+          </div>
+
+          {selectedSquare && !isViewingHistory && (
+            <p className="note" style={{ marginTop: "0.5rem", textAlign: "center" }}>
+              Press <kbd className="kbd">ESC</kbd> to deselect
+            </p>
+          )}
+        </div>
+
+        {/* Right side: Status panel with mini-game (shown when proving or waiting) */}
+        {(phase === "proving" || (!isMyTurn && phase === "playing" && !waitingForOpponentToJoin)) && (
+          <div className="game-side-panel animate-slide-in-right">
+            <div className="side-panel-status">
+              <div className="spinner-medium" />
+              <h3>{phase === "proving" ? "Generating Proof" : "Opponent's Turn"}</h3>
+              <p>
+                {phase === "proving"
+                  ? "Creating zero-knowledge proof for your move..."
+                  : "Waiting for opponent to make their move..."}
+              </p>
+            </div>
+
+            <div className="mini-game-section">
+              <p className="mini-game-label">Play while you wait!</p>
+              <FlappyPawn playerColor={role} />
+            </div>
+          </div>
         )}
       </div>
-
-      {selectedSquare && !isViewingHistory && (
-        <p className="note" style={{ marginTop: "0.5rem", textAlign: "center" }}>
-          Press <kbd className="kbd">ESC</kbd> to deselect
-        </p>
-      )}
-
-      {/* Proof generation overlay */}
-      {phase === "proving" && (
-        <div className="overlay animate-fade-in">
-          <div className="overlay-content animate-scale-in">
-            <div className="spinner-large" />
-            <h3>Generating Proof</h3>
-            <p>Creating zero-knowledge proof for your move...</p>
-            <p className="note">This may take a moment.</p>
-          </div>
-        </div>
-      )}
 
       {/* Game over overlay */}
       {phase === "game_over" && (
