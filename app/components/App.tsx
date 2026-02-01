@@ -1,63 +1,77 @@
-import React, { useState, useCallback } from "react";
+import React from "react";
 import { useAztec } from "../hooks/useAztec";
 import { useChessGame } from "../hooks/useChessGame";
-import { ConnectScreen } from "./ConnectScreen";
 import { LobbyScreen } from "./LobbyScreen";
 import { GameScreen } from "./GameScreen";
-import type { PlayerRole } from "../lib/types";
 
 export function App() {
   const aztec = useAztec();
   const game = useChessGame(aztec.wallet, aztec.address, aztec.node);
-  const [selectedRole, setSelectedRole] = useState<PlayerRole | null>(null);
 
-  const handleConnect = useCallback(
-    (playerIndex: number) => {
-      setSelectedRole(playerIndex === 0 ? "white" : "black");
-      aztec.connect(playerIndex);
-    },
-    [aztec.connect]
-  );
-
-  // Phase 1: Connect wallet
+  // Phase 1: Connecting to Aztec (auto-connects on mount)
   if (!aztec.wallet || !aztec.address) {
     return (
-      <ConnectScreen
-        isConnecting={aztec.isConnecting}
-        error={aztec.error}
-        onConnect={handleConnect}
-      />
+      <div className="screen connect-screen animate-fade-in">
+        <div className="brand-badge">
+          <span className="aztec-logo">AZTEC</span>
+          <span>Network</span>
+        </div>
+
+        <h1>Fog of War Chess</h1>
+        <p className="subtitle">
+          Private chess where you can only see what your pieces can see
+        </p>
+
+        {aztec.isConnecting && (
+          <div className="status-bar spinner animate-slide-up">
+            Connecting to Aztec network (Player {aztec.playerIndex})...
+          </div>
+        )}
+
+        {aztec.error && (
+          <>
+            <div className="error-bar animate-slide-up">{aztec.error}</div>
+            <p className="note mt-8">
+              Open as Player 1: <a href="?player=0">?player=0</a><br />
+              Open as Player 2: <a href="?player=1">?player=1</a>
+            </p>
+          </>
+        )}
+
+        {!aztec.error && (
+          <p className="note mt-8">
+            Requires an Aztec sandbox running at localhost:8080
+          </p>
+        )}
+      </div>
     );
   }
-
-  const effectiveRole = game.role || selectedRole || "white";
 
   // Phase 2: Lobby (create/join game)
   if (
     game.phase === "lobby" ||
     game.phase === "creating" ||
-    game.phase === "waiting_opponent" ||
     game.phase === "joining"
   ) {
     return (
       <LobbyScreen
-        role={effectiveRole}
         phase={game.phase}
-        contractAddress={game.contractAddress}
-        gameId={game.gameId}
         statusMessage={game.statusMessage}
         error={game.error}
+        openGames={game.openGames}
+        isLoadingGames={game.isLoadingGames}
+        playerIndex={aztec.playerIndex}
         onCreateGame={game.createGame}
         onJoinGame={game.joinGame}
-        onStartPlaying={game.startPlaying}
+        onFetchOpenGames={game.fetchOpenGames}
       />
     );
   }
 
-  // Phase 3: Playing
+  // Phase 3: Playing (includes waiting for opponent)
   return (
     <GameScreen
-      role={game.role || effectiveRole}
+      role={game.role || "white"}
       phase={game.phase}
       gameId={game.gameId}
       userState={game.userState}
@@ -66,6 +80,8 @@ export function App() {
       isMyTurn={game.isMyTurn}
       statusMessage={game.statusMessage}
       error={game.error}
+      opponentJoined={game.opponentJoined}
+      createdGamePassword={game.createdGamePassword}
       onMakeMove={game.makeMove}
     />
   );

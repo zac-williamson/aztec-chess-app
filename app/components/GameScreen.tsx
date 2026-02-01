@@ -1,11 +1,145 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Chessboard } from "./Chessboard";
 import {
   buildBoardFromUserState,
   isOwnPiece,
   validateMovePattern,
 } from "../lib/chessUtils";
-import type { PlayerRole, GamePhase } from "../lib/types";
+import type { PlayerRole, GamePhase, BoardSquare } from "../lib/types";
+
+// Singleton AudioContext for efficient sound playback
+let audioContext: AudioContext | null = null;
+
+function getAudioContext(): AudioContext | null {
+  if (!audioContext) {
+    try {
+      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    } catch {
+      return null;
+    }
+  }
+  return audioContext;
+}
+
+// Play a cute voice sound using oscillators to simulate speech
+const playCuteSound = (type: "yahoo" | "aww") => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    if (type === "yahoo") {
+      // Happy ascending "Yahoo!" sound
+      const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+      notes.forEach((freq, i) => {
+        setTimeout(() => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = freq;
+          osc.type = "sine";
+          gain.gain.value = 0.15;
+          osc.start();
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+          osc.stop(ctx.currentTime + 0.12);
+        }, i * 80);
+      });
+    } else {
+      // Sad descending "Aww" sound
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 440;
+      osc.type = "sine";
+      gain.gain.value = 0.12;
+      osc.start();
+      // Descending pitch
+      osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.4);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.stop(ctx.currentTime + 0.5);
+    }
+  } catch {
+    // Audio playback failed, silently ignore
+  }
+};
+
+const playSound = (type: "move" | "capture" | "opponentCapture" | "gameOver" | "yourTurn") => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  // Use cute sounds for captures
+  if (type === "capture") {
+    playCuteSound("yahoo");
+    return;
+  }
+  if (type === "opponentCapture") {
+    playCuteSound("aww");
+    return;
+  }
+
+  try {
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    switch (type) {
+      case "move":
+        oscillator.frequency.value = 440;
+        gainNode.gain.value = 0.1;
+        oscillator.type = "sine";
+        break;
+      case "gameOver":
+        oscillator.frequency.value = 220;
+        gainNode.gain.value = 0.1;
+        oscillator.type = "sawtooth";
+        break;
+      case "yourTurn":
+        oscillator.frequency.value = 523.25;
+        gainNode.gain.value = 0.15;
+        oscillator.type = "sine";
+        break;
+    }
+
+    const duration = type === "yourTurn" ? 0.15 : 0.3;
+    oscillator.start();
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    oscillator.stop(ctx.currentTime + duration);
+
+    if (type === "yourTurn") {
+      setTimeout(() => {
+        try {
+          const osc2 = ctx.createOscillator();
+          const gain2 = ctx.createGain();
+          osc2.connect(gain2);
+          gain2.connect(ctx.destination);
+          osc2.frequency.value = 659.25;
+          gain2.gain.value = 0.15;
+          osc2.type = "sine";
+          osc2.start();
+          gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+          osc2.stop(ctx.currentTime + 0.2);
+        } catch {
+          // Ignore errors
+        }
+      }, 120);
+    }
+  } catch {
+    // Audio playback failed, silently ignore
+  }
+};
+
+interface BoardSnapshot {
+  board: BoardSquare[][];
+  moveNumber: number;
+}
+
+interface CapturedPieces {
+  byWhite: string[]; // Pieces white has captured (black pieces)
+  byBlack: string[]; // Pieces black has captured (white pieces)
+}
 
 interface GameScreenProps {
   role: PlayerRole;
@@ -17,6 +151,8 @@ interface GameScreenProps {
   isMyTurn: boolean;
   statusMessage: string;
   error: string | null;
+  opponentJoined: boolean;
+  createdGamePassword: string;
   onMakeMove: (
     fromRow: number,
     fromCol: number,
@@ -35,6 +171,8 @@ export function GameScreen({
   isMyTurn,
   statusMessage,
   error,
+  opponentJoined,
+  createdGamePassword,
   onMakeMove,
 }: GameScreenProps) {
   const [selectedSquare, setSelectedSquare] = useState<{
@@ -42,36 +180,189 @@ export function GameScreen({
     col: number;
   } | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [capturedPieces, setCapturedPieces] = useState<CapturedPieces>({
+    byWhite: [],
+    byBlack: [],
+  });
+  const [boardHistory, setBoardHistory] = useState<BoardSnapshot[]>([]);
+  const [viewingMoveIndex, setViewingMoveIndex] = useState<number>(-1); // -1 means viewing current
+  const prevIsMyTurnRef = useRef<boolean>(isMyTurn);
+  const prevMoveCountRef = useRef<number>(0);
 
-  const board = userState
+  const currentBoard = userState
     ? buildBoardFromUserState(userState, role, confirmedEmptySquares)
     : null;
 
   const moveCount = gameState ? Number(gameState.move_count) : 0;
 
+  // Helper to get list of our pieces on a board
+  const getOurPieces = useCallback((board: BoardSquare[][] | null): string[] => {
+    if (!board) return [];
+    const pieces: string[] = [];
+    const ourColor = role;
+    board.forEach(row => {
+      row.forEach(square => {
+        if (square.piece && square.pieceColor === ourColor) {
+          pieces.push(square.piece);
+        }
+      });
+    });
+    return pieces.sort(); // Sort for consistent comparison
+  }, [role]);
+
+  // Find which pieces were lost by comparing two piece lists
+  const findLostPieces = useCallback((prevPieces: string[], currentPieces: string[]): string[] => {
+    const lost: string[] = [];
+    const currentCopy = [...currentPieces];
+
+    for (const piece of prevPieces) {
+      const idx = currentCopy.indexOf(piece);
+      if (idx === -1) {
+        // This piece is no longer present
+        lost.push(piece);
+      } else {
+        // Remove from copy so duplicates are handled correctly
+        currentCopy.splice(idx, 1);
+      }
+    }
+    return lost;
+  }, []);
+
+  const prevPiecesRef = useRef<string[]>([]); // Track actual pieces, not just count
+
+  // Store board snapshot when move count changes and detect opponent captures
+  useEffect(() => {
+    if (currentBoard && moveCount !== prevMoveCountRef.current) {
+      const currentPieces = getOurPieces(currentBoard);
+
+      // Check if opponent captured our piece (we have fewer pieces than before)
+      // Only check when it becomes our turn (opponent just moved)
+      if (isMyTurn && prevPiecesRef.current.length > 0 && phase === "playing") {
+        const lostPieces = findLostPieces(prevPiecesRef.current, currentPieces);
+        if (lostPieces.length > 0) {
+          playSound("opponentCapture");
+          // Track opponent's capture with the actual piece type
+          setCapturedPieces(prev => ({
+            ...prev,
+            [role === "white" ? "byBlack" : "byWhite"]: [
+              ...prev[role === "white" ? "byBlack" : "byWhite"],
+              ...lostPieces,
+            ],
+          }));
+        }
+      }
+      prevPiecesRef.current = currentPieces;
+
+      // Deep copy the board for the snapshot
+      const boardCopy = currentBoard.map(row =>
+        row.map(square => ({ ...square }))
+      );
+      setBoardHistory(prev => {
+        // Only add if this move number doesn't exist yet
+        const existingIndex = prev.findIndex(s => s.moveNumber === moveCount);
+        if (existingIndex === -1) {
+          return [...prev, { board: boardCopy, moveNumber: moveCount }];
+        }
+        return prev;
+      });
+      // Reset to viewing current when new move happens
+      setViewingMoveIndex(-1);
+    }
+    prevMoveCountRef.current = moveCount;
+  }, [moveCount, currentBoard, getOurPieces, findLostPieces, isMyTurn, phase, role]);
+
+  // Determine which board to display
+  const isViewingHistory = viewingMoveIndex >= 0 && viewingMoveIndex < boardHistory.length;
+  const displayBoard = isViewingHistory
+    ? boardHistory[viewingMoveIndex].board
+    : currentBoard;
+  const displayMoveNumber = isViewingHistory
+    ? boardHistory[viewingMoveIndex].moveNumber
+    : moveCount;
+
+  // Keyboard shortcut: ESC to deselect
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selectedSquare) {
+        setSelectedSquare(null);
+        setMoveError(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedSquare]);
+
+  // Play sound on game over
+  useEffect(() => {
+    if (phase === "game_over") {
+      playSound("gameOver");
+    }
+  }, [phase]);
+
+  // Play notification sound when it becomes your turn
+  useEffect(() => {
+    if (isMyTurn && !prevIsMyTurnRef.current && phase === "playing") {
+      playSound("yourTurn");
+    }
+    prevIsMyTurnRef.current = isMyTurn;
+  }, [isMyTurn, phase]);
+
+  // Navigation handlers for move replay
+  const canGoBack = boardHistory.length > 0 && (viewingMoveIndex === -1 ? true : viewingMoveIndex > 0);
+  const canGoForward = viewingMoveIndex >= 0 && viewingMoveIndex < boardHistory.length - 1;
+  const isAtCurrentMove = viewingMoveIndex === -1;
+
+  const goBack = useCallback(() => {
+    if (viewingMoveIndex === -1) {
+      // Currently viewing current state, go to last snapshot
+      setViewingMoveIndex(boardHistory.length - 1);
+    } else if (viewingMoveIndex > 0) {
+      setViewingMoveIndex(viewingMoveIndex - 1);
+    }
+    setSelectedSquare(null);
+  }, [viewingMoveIndex, boardHistory.length]);
+
+  const goForward = useCallback(() => {
+    if (viewingMoveIndex >= 0 && viewingMoveIndex < boardHistory.length - 1) {
+      setViewingMoveIndex(viewingMoveIndex + 1);
+    } else if (viewingMoveIndex === boardHistory.length - 1) {
+      // At last snapshot, go to current
+      setViewingMoveIndex(-1);
+    }
+    setSelectedSquare(null);
+  }, [viewingMoveIndex, boardHistory.length]);
+
+  const goToCurrent = useCallback(() => {
+    setViewingMoveIndex(-1);
+    setSelectedSquare(null);
+  }, []);
+
   const handleSquareClick = useCallback(
-    (row: number, col: number) => {
-      if (phase !== "playing" || !isMyTurn || !board) return;
+    async (row: number, col: number) => {
+      // Block moves when viewing history
+      if (isViewingHistory) {
+        setMoveError("Viewing history - return to current move to play");
+        return;
+      }
+
+      if (phase !== "playing" || !isMyTurn || !currentBoard) return;
       setMoveError(null);
 
       if (selectedSquare) {
-        // Second click: attempt move
         if (selectedSquare.row === row && selectedSquare.col === col) {
-          // Deselect
           setSelectedSquare(null);
           return;
         }
 
-        // Clicking another own piece → re-select it
-        const targetSquare = board[row][col];
+        const targetSquare = currentBoard[row][col];
         if (isOwnPiece(targetSquare, role)) {
           setSelectedSquare({ row, col });
           return;
         }
 
-        // Validate the move pattern before submitting
         const validationError = validateMovePattern(
-          board,
+          currentBoard,
           selectedSquare.row,
           selectedSquare.col,
           row,
@@ -83,69 +374,218 @@ export function GameScreen({
           return;
         }
 
-        // Make the move
-        onMakeMove(selectedSquare.row, selectedSquare.col, row, col);
+        // Get the moving piece info
+        const movingPiece = currentBoard[selectedSquare.row][selectedSquare.col];
+        const isCapture = targetSquare.piece !== null;
+        const capturedPiece = isCapture ? targetSquare.piece : undefined;
+
+        // Play appropriate sound
+        playSound(isCapture ? "capture" : "move");
+
+        // Track captured piece
+        if (isCapture && capturedPiece) {
+          setCapturedPieces((prev) => ({
+            ...prev,
+            [role === "white" ? "byWhite" : "byBlack"]: [
+              ...prev[role === "white" ? "byWhite" : "byBlack"],
+              capturedPiece,
+            ],
+          }));
+        }
+
+        await onMakeMove(selectedSquare.row, selectedSquare.col, row, col);
         setSelectedSquare(null);
       } else {
-        // First click: select piece
-        const square = board[row][col];
+        const square = currentBoard[row][col];
         if (isOwnPiece(square, role)) {
           setSelectedSquare({ row, col });
         }
       }
     },
-    [phase, isMyTurn, board, selectedSquare, role, onMakeMove]
+    [phase, isMyTurn, currentBoard, selectedSquare, role, onMakeMove, isViewingHistory]
   );
 
-  // Turn indicator
-  const turnText = isMyTurn ? "Your turn" : "Opponent's turn";
+  const waitingForOpponentToJoin = role === "white" && !opponentJoined;
+  const isYourTurn = isMyTurn && phase === "playing" && !waitingForOpponentToJoin;
+  const turnText = waitingForOpponentToJoin
+    ? "Waiting for opponent to join..."
+    : isYourTurn
+    ? "Your turn"
+    : "Waiting for opponent...";
   const roleText = role === "white" ? "White" : "Black";
 
+  const isVictory = phase === "game_over" && statusMessage.toLowerCase().includes("you captured");
+  const isDefeat = phase === "game_over" && statusMessage.toLowerCase().includes("your king");
+
+  // Render captured pieces using unicode symbols
+  const pieceSymbols: Record<string, string> = {
+    K: "♚", Q: "♛", R: "♜", B: "♝", N: "♞", P: "♟",
+  };
+
+  const renderCapturedPieces = (pieces: string[], color: "white" | "black") => {
+    if (pieces.length === 0) return <span className="no-captures">None</span>;
+    return pieces.map((piece, i) => (
+      <span key={i} className={`captured-piece ${color}`}>
+        {pieceSymbols[piece] || piece}
+      </span>
+    ));
+  };
+
   return (
-    <div className="screen game-screen">
+    <div className="screen game-screen animate-fade-in">
       <div className="game-header">
         <div className="game-info-row">
-          <span className="role-badge">{roleText}</span>
-          <span className="turn-indicator">{turnText}</span>
+          <span className={`role-badge ${role}`}>{roleText}</span>
+          <span
+            className={`turn-indicator ${isYourTurn ? "your-turn" : "opponent-turn"}`}
+            role="status"
+            aria-live="polite"
+          >
+            {turnText}
+          </span>
           <span className="move-counter">Move #{moveCount}</span>
-          {gameId !== null && (
-            <span className="game-id">Game #{gameId}</span>
-          )}
         </div>
-        <div className="status-bar">{statusMessage}</div>
-        {(error || moveError) && (
-          <div className="error-bar">{error || moveError}</div>
+
+        {gameId !== null && (
+          <span className="game-id">
+            Game <code>#{gameId}</code>
+          </span>
         )}
       </div>
 
-      {board ? (
+      {/* Waiting for opponent to join info */}
+      {waitingForOpponentToJoin && (
+        <div className="waiting-opponent-info animate-slide-up">
+          <p className="waiting-text">
+            Share these details with your opponent:
+          </p>
+          <div className="share-details">
+            <div className="share-item">
+              <span className="share-label">Game ID:</span>
+              <code className="share-value">{gameId}</code>
+            </div>
+            {createdGamePassword && (
+              <div className="share-item">
+                <span className="share-label">Password:</span>
+                <code className="share-value">{createdGamePassword}</code>
+              </div>
+            )}
+          </div>
+          <p className="note">The game will start automatically when they join.</p>
+        </div>
+      )}
+
+      {(error || moveError) && (
+        <div className="error-bar animate-slide-up">{error || moveError}</div>
+      )}
+
+      {/* Captured pieces display */}
+      <div className="captured-pieces-container">
+        <div className="captured-section">
+          <span className="captured-label">Your captures:</span>
+          <div className="captured-list">
+            {renderCapturedPieces(
+              role === "white" ? capturedPieces.byWhite : capturedPieces.byBlack,
+              role === "white" ? "black" : "white"
+            )}
+          </div>
+        </div>
+        <div className="captured-section">
+          <span className="captured-label">Opponent's captures:</span>
+          <div className="captured-list">
+            {renderCapturedPieces(
+              role === "white" ? capturedPieces.byBlack : capturedPieces.byWhite,
+              role
+            )}
+          </div>
+        </div>
+      </div>
+
+      {displayBoard ? (
         <Chessboard
-          board={board}
-          selectedSquare={selectedSquare}
+          board={displayBoard}
+          selectedSquare={isViewingHistory ? null : selectedSquare}
           onSquareClick={handleSquareClick}
           perspective={role}
         />
       ) : (
-        <div className="loading">Loading board...</div>
+        <div className="loading">
+          <div className="spinner-large" />
+          <p className="loading-text">Loading board...</p>
+        </div>
+      )}
+
+      {/* Move replay controls */}
+      <div className="move-replay-controls">
+        <button
+          className="btn btn-secondary btn-sm replay-btn"
+          onClick={goBack}
+          disabled={!canGoBack}
+          title="Previous move"
+        >
+          ◀
+        </button>
+        <span className="move-indicator">
+          {isViewingHistory ? (
+            <>Move {displayMoveNumber} <span className="viewing-history">(viewing history)</span></>
+          ) : (
+            <>Move {moveCount}</>
+          )}
+        </span>
+        <button
+          className="btn btn-secondary btn-sm replay-btn"
+          onClick={goForward}
+          disabled={!canGoForward && isAtCurrentMove}
+          title="Next move"
+        >
+          ▶
+        </button>
+        {isViewingHistory && (
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={goToCurrent}
+            title="Return to current"
+          >
+            Current
+          </button>
+        )}
+      </div>
+
+      {selectedSquare && !isViewingHistory && (
+        <p className="note" style={{ marginTop: "0.5rem", textAlign: "center" }}>
+          Press <kbd className="kbd">ESC</kbd> to deselect
+        </p>
       )}
 
       {/* Proof generation overlay */}
       {phase === "proving" && (
-        <div className="overlay">
-          <div className="overlay-content">
+        <div className="overlay animate-fade-in">
+          <div className="overlay-content animate-scale-in">
             <div className="spinner-large" />
-            <p>Generating zero-knowledge proof...</p>
-            <p className="note">This may take a while.</p>
+            <h3>Generating Proof</h3>
+            <p>Creating zero-knowledge proof for your move...</p>
+            <p className="note">This may take a moment.</p>
           </div>
         </div>
       )}
 
       {/* Game over overlay */}
       {phase === "game_over" && (
-        <div className="overlay">
-          <div className="overlay-content">
-            <h2>Game Over</h2>
+        <div className="overlay animate-fade-in">
+          <div className={`overlay-content animate-scale-in ${isVictory ? "victory" : isDefeat ? "defeat" : ""}`}>
+            <div className="game-result-icon">
+              {isVictory ? "🏆" : isDefeat ? "💀" : "🤝"}
+            </div>
+            <h2>
+              {isVictory ? "Victory!" : isDefeat ? "Defeat" : "Game Over"}
+            </h2>
             <p>{statusMessage}</p>
+            <button
+              className="btn btn-primary"
+              onClick={() => window.location.reload()}
+            >
+              Play Again
+            </button>
           </div>
         </div>
       )}

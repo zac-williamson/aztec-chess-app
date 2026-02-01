@@ -388,3 +388,84 @@ export function validateMovePattern(
  */
 export const FILE_LABELS = ["a", "b", "c", "d", "e", "f", "g", "h"];
 export const RANK_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+
+/**
+ * Get all valid move target squares for a piece at the given position.
+ * Returns an array of {row, col} objects representing valid destinations.
+ * This is a basic check that doesn't account for check/pin legality,
+ * path obstructions for sliding pieces, or en passant.
+ */
+export function getValidMoves(
+  board: BoardSquare[][],
+  fromRow: number,
+  fromCol: number,
+  role: PlayerRole
+): { row: number; col: number }[] {
+  const from = board[fromRow][fromCol];
+  if (!from.piece || !isOwnPiece(from, role)) return [];
+
+  const validMoves: { row: number; col: number }[] = [];
+
+  // Check all possible squares
+  for (let toRow = 0; toRow < 8; toRow++) {
+    for (let toCol = 0; toCol < 8; toCol++) {
+      if (toRow === fromRow && toCol === fromCol) continue;
+
+      const error = validateMovePattern(board, fromRow, fromCol, toRow, toCol, role);
+      if (error === null) {
+        // Basic validation passed - check path for sliding pieces
+        const to = board[toRow][toCol];
+        const piece = from.piece;
+
+        // For sliding pieces (B, R, Q), check if path is clear
+        if (piece === "B" || piece === "R" || piece === "Q") {
+          if (isPathClear(board, fromRow, fromCol, toRow, toCol)) {
+            validMoves.push({ row: toRow, col: toCol });
+          }
+        } else {
+          // Non-sliding pieces (P, N, K) - already validated
+          validMoves.push({ row: toRow, col: toCol });
+        }
+      }
+    }
+  }
+
+  return validMoves;
+}
+
+/**
+ * Check if the path between two squares is clear (for sliding pieces).
+ * Does not check the destination square (that's handled by validateMovePattern).
+ */
+function isPathClear(
+  board: BoardSquare[][],
+  fromRow: number,
+  fromCol: number,
+  toRow: number,
+  toCol: number
+): boolean {
+  const dr = toRow - fromRow;
+  const dc = toCol - fromCol;
+
+  // Determine step direction
+  const stepR = dr === 0 ? 0 : dr > 0 ? 1 : -1;
+  const stepC = dc === 0 ? 0 : dc > 0 ? 1 : -1;
+
+  let r = fromRow + stepR;
+  let c = fromCol + stepC;
+
+  // Check all squares between from and to (exclusive)
+  while (r !== toRow || c !== toCol) {
+    const square = board[r][c];
+    // If there's a piece in the way (and we can see it), path is blocked
+    if (square.piece) {
+      return false;
+    }
+    // If it's fog, we can't be sure - allow the move and let the contract validate
+    // This is intentional for fog of war gameplay
+    r += stepR;
+    c += stepC;
+  }
+
+  return true;
+}

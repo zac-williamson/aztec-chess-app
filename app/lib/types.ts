@@ -32,3 +32,8 @@ export interface BoardSquare {
   potentiallyVisible: boolean; // client-side vision says yes, but waiting for opponent's MPC response
   isSelected: boolean;
 }
+
+export interface OpenGame {
+  gameId: number;
+  hasPassword: boolean;
+}

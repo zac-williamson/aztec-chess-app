@@ -8,7 +8,7 @@ import {
 import { getDecodedPublicEvents } from "@aztec/aztec.js/events";
 import type { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
-import type { GamePhase, PlayerRole } from "../lib/types";
+import type { GamePhase, PlayerRole, OpenGame } from "../lib/types";
 import { PIECE_IDS } from "../lib/types";
 import { computeClientVision } from "../lib/chessUtils";
 import contractConfig from "../config/contract-address.json";
@@ -24,6 +24,10 @@ interface UseChessGameReturn {
   isMyTurn: boolean;
   statusMessage: string;
   error: string | null;
+  openGames: OpenGame[];
+  isLoadingGames: boolean;
+  opponentJoined: boolean;
+  createdGamePassword: string;
   createGame: (password: number) => Promise<void>;
   joinGame: (
     gameId: number,
@@ -35,7 +39,8 @@ interface UseChessGameReturn {
     toRow: number,
     toCol: number
   ) => Promise<void>;
-  startPlaying: () => void;
+  fetchOpenGames: () => Promise<void>;
+  setRole: (role: PlayerRole) => void;
 }
 
 export function useChessGame(
@@ -53,6 +58,10 @@ export function useChessGame(
   const [moveCount, setMoveCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("Waiting...");
+  const [openGames, setOpenGames] = useState<OpenGame[]>([]);
+  const [isLoadingGames, setIsLoadingGames] = useState(false);
+  const [opponentJoined, setOpponentJoined] = useState(false);
+  const [createdGamePassword, setCreatedGamePassword] = useState("");
 
   const contractRef = useRef<FogOfWarChessContract | null>(null);
   const lastBlockRef = useRef<number>(0);
@@ -74,11 +83,11 @@ export function useChessGame(
     userStateRef.current = userState;
   }, [userState]);
 
-  // Compute whose turn it is
+  // Compute whose turn it is (white must also wait for opponent to join)
   const isMyTurn =
     role !== null && gameState !== null
       ? role === "white"
-        ? Number(gameState.move_count) % 2 === 0
+        ? opponentJoined && Number(gameState.move_count) % 2 === 0
         : Number(gameState.move_count) % 2 === 1
       : false;
 
@@ -163,9 +172,11 @@ export function useChessGame(
         setGameState(gs);
         setUserState(ws);
         lastBlockRef.current = receipt.blockNumber!;
-        setPhase("waiting_opponent");
+        setCreatedGamePassword(String(password || ""));
+        setOpponentJoined(false);
+        setPhase("playing");
         setStatusMessage(
-          `Game created! ID: ${gid}. Share game ID with opponent.`
+          `Game #${gid} created. Waiting for opponent to join...`
         );
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Failed to create game";
@@ -287,6 +298,7 @@ export function useChessGame(
         setGameState(gs);
         setUserState(bs);
         lastBlockRef.current = receipt.blockNumber!;
+        setOpponentJoined(true); // Black joining means both players are present
         setPhase("playing");
         setStatusMessage("Game joined! Waiting for White to move...");
       } catch (e) {
@@ -299,18 +311,14 @@ export function useChessGame(
     [wallet, address, node]
   );
 
-  // ─── White starts playing (after black joins) ───
+  // ─── Poll for opponent to join (white only) ───
 
-  const startPlaying = useCallback(async () => {
-    if (!node || !contractRef.current || !address || gameId === null) {
-      setPhase("playing");
-      setStatusMessage("Your turn! Select a piece to move.");
+  const pollForOpponentJoin = useCallback(async () => {
+    if (!node || !contractRef.current || !address || gameId === null || role !== "white" || opponentJoined) {
       return;
     }
 
     try {
-      setStatusMessage("Fetching opponent's secret hashes...");
-
       const contract = contractRef.current;
 
       // Use the contract method to get secret hashes
@@ -319,11 +327,12 @@ export function useChessGame(
         .simulate({ from: address });
 
       // Check if black has joined (black's hashes should be non-zero)
-      // Values from simulate() are bigints, not Fr objects
       if (BigInt(secretHashes[2]) === 0n) {
-        setStatusMessage("Waiting for opponent to join...");
+        // Still waiting
         return;
       }
+
+      console.log("Opponent joined! Secret hashes:", secretHashes);
 
       // Store black's secret hashes
       opponentSecretHashesRef.current = {
@@ -331,12 +340,8 @@ export function useChessGame(
         mask: secretHashes[3],
       };
 
-      console.log('secret hashes = ', secretHashes);
-
       // Rebuild game state from scratch to match what the contract computed
-      // when black joined. The contract creates a fresh empty_game_state()
-      // and sets both players' hashes, so we must do the same.
-      setStatusMessage("Initializing game state...");
+      // when black joined.
       let gs = await contract.methods
         .__empty_game_state()
         .simulate({ from: address });
@@ -355,19 +360,14 @@ export function useChessGame(
       ws.encrypt_secret = encryptSecretRef.current;
       ws.mask_secret = maskSecretRef.current;
 
-      console.log('new white state encrypt mask secrets = ', ws.encrypt_secret, ws.mask_secret);
       setGameState({ ...gs });
       setUserState({ ...ws });
-
-      setPhase("playing");
-      setStatusMessage("Your turn! Select a piece to move.");
+      setOpponentJoined(true);
+      setStatusMessage("Opponent joined! Your turn to move.");
     } catch (e) {
-      console.error("Error fetching opponent secrets:", e);
-      // Fall back to just starting
-      setPhase("playing");
-      setStatusMessage("Your turn! Select a piece to move.");
+      console.error("Error polling for opponent:", e);
     }
-  }, [address, gameId]);
+  }, [node, address, gameId, role, opponentJoined]);
 
   // ─── Make a move ───
 
@@ -487,6 +487,64 @@ export function useChessGame(
     [wallet, address, node, role, gameId]
   );
 
+  // ─── Fetch open games for lobby ───
+
+  const fetchOpenGames = useCallback(async () => {
+    if (!node || !wallet || !address) return;
+
+    setIsLoadingGames(true);
+    try {
+      const { AztecAddress: AztecAddr } = await import("@aztec/aztec.js/addresses");
+      const contractAddr = AztecAddr.fromString(contractConfig.contractAddress);
+
+      // Register contract if needed
+      const contractInstance = await node.getContract(contractAddr);
+      if (!contractInstance) {
+        console.error("Contract not found");
+        setIsLoadingGames(false);
+        return;
+      }
+      await wallet.registerContract(contractInstance, FogOfWarChessContractArtifact);
+
+      const contract = FogOfWarChessContract.at(contractAddr, wallet);
+
+      // Read game_counter from public storage (slot 1)
+      const gameCounterSlot = new Fr(1n);
+      const gameCounterValue = await node.getPublicStorageAt("latest", contractAddr, gameCounterSlot);
+      const maxGameId = Number(gameCounterValue.toBigInt());
+
+      // Query last 50 games (or fewer if less exist)
+      const startId = Math.max(0, maxGameId - 50);
+      const games: OpenGame[] = [];
+
+      for (let gameId = startId; gameId < maxGameId; gameId++) {
+        try {
+          const hashes = await contract.methods
+            .__get_game_secret_hashes(gameId)
+            .simulate({ from: address });
+
+          // Check if game exists and is open
+          const whiteJoined = BigInt(hashes[0]) !== 0n;
+          const blackJoined = BigInt(hashes[2]) !== 0n;
+          // Before black joins, [3] holds password hash (0 = no password)
+          const hasPassword = !blackJoined && BigInt(hashes[3]) !== 0n;
+
+          if (whiteJoined && !blackJoined) {
+            games.push({ gameId, hasPassword });
+          }
+        } catch (e) {
+          console.error(`Failed to check game ${gameId}:`, e);
+        }
+      }
+
+      setOpenGames(games);
+    } catch (e) {
+      console.error("Failed to fetch open games:", e);
+    } finally {
+      setIsLoadingGames(false);
+    }
+  }, [node, wallet, address]);
+
   // ─── Poll for opponent moves ───
 
   const pollForOpponentMove = useCallback(async () => {
@@ -570,20 +628,19 @@ export function useChessGame(
   // Start/stop polling based on phase and turn
   useEffect(() => {
     // Poll when it's not our turn and we're in playing phase
-    const shouldPoll = phase === "playing" && !isMyTurn;
+    const shouldPollForMoves = phase === "playing" && !isMyTurn && opponentJoined;
 
-    // Also poll when waiting for opponent to join
-    const waitingForOpponent = phase === "waiting_opponent";
+    // Poll when white is waiting for opponent to join
+    const shouldPollForOpponent = phase === "playing" && role === "white" && !opponentJoined;
 
-    if (shouldPoll || waitingForOpponent) {
+    if (shouldPollForMoves || shouldPollForOpponent) {
       pollingRef.current = setInterval(() => {
-        if (waitingForOpponent) {
-          // Just check if opponent joined — for now, white manually starts
-          // (Could poll game_hashes storage, but that requires public storage reads)
+        if (shouldPollForOpponent) {
+          pollForOpponentJoin();
         } else {
           pollForOpponentMove();
         }
-      }, 5000);
+      }, 3000);
     }
 
     return () => {
@@ -592,7 +649,7 @@ export function useChessGame(
         pollingRef.current = null;
       }
     };
-  }, [phase, isMyTurn, pollForOpponentMove]);
+  }, [phase, isMyTurn, opponentJoined, role, pollForOpponentMove, pollForOpponentJoin]);
 
   return {
     phase,
@@ -605,9 +662,14 @@ export function useChessGame(
     isMyTurn,
     statusMessage,
     error,
+    openGames,
+    isLoadingGames,
+    opponentJoined,
+    createdGamePassword,
     createGame,
     joinGame,
     makeMove,
-    startPlaying,
+    fetchOpenGames,
+    setRole,
   };
 }

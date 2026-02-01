@@ -1,7 +1,10 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Square } from "./Square";
+import { ChessboardCanvas } from "./ChessboardCanvas";
 import type { BoardSquare, PlayerRole } from "../lib/types";
-import { FILE_LABELS, RANK_LABELS } from "../lib/chessUtils";
+import { FILE_LABELS, RANK_LABELS, getValidMoves } from "../lib/chessUtils";
+
+const SQUARE_SIZE = 70;
 
 interface ChessboardProps {
   board: BoardSquare[][];
@@ -16,6 +19,7 @@ export function Chessboard({
   onSquareClick,
   perspective,
 }: ChessboardProps) {
+  const [hoveredSquare, setHoveredSquare] = useState<{ row: number; col: number } | null>(null);
   // File labels along the bottom
   const fileLabels =
     perspective === "white" ? FILE_LABELS : [...FILE_LABELS].reverse();
@@ -25,11 +29,25 @@ export function Chessboard({
       ? [...RANK_LABELS].reverse()
       : RANK_LABELS;
 
+  // Compute valid moves for the selected piece
+  const validMoves = useMemo(() => {
+    if (!selectedSquare) return new Set<string>();
+
+    const moves = getValidMoves(
+      board,
+      selectedSquare.row,
+      selectedSquare.col,
+      perspective
+    );
+
+    return new Set(moves.map((m) => `${m.row},${m.col}`));
+  }, [board, selectedSquare, perspective]);
+
   return (
     <div className="board-container">
       <div className="board-with-labels">
         {/* Rank labels on the left */}
-        <div className="rank-labels">
+        <div className="rank-labels" aria-hidden="true">
           {rankLabels.map((label, i) => (
             <div key={i} className="rank-label">
               {label}
@@ -37,30 +55,48 @@ export function Chessboard({
           ))}
         </div>
 
-        {/* The board */}
-        <div className="board">
+        {/* The board with 3D canvas overlay */}
+        <div className="board" role="grid" aria-label="Chess board" style={{ position: 'relative' }}>
+          {/* 3D pieces canvas overlay */}
+          <ChessboardCanvas
+            board={board}
+            selectedSquare={selectedSquare}
+            hoveredSquare={hoveredSquare}
+            squareSize={SQUARE_SIZE}
+            perspective={perspective}
+          />
+
+          {/* Interactive squares layer */}
           {board.map((row, rowIdx) => (
-            <div key={rowIdx} className="board-row">
-              {row.map((square, colIdx) => (
-                <Square
-                  key={colIdx}
-                  row={rowIdx}
-                  col={colIdx}
-                  square={square}
-                  isSelected={
-                    selectedSquare?.row === rowIdx &&
-                    selectedSquare?.col === colIdx
-                  }
-                  onClick={() => onSquareClick(rowIdx, colIdx)}
-                />
-              ))}
+            <div key={rowIdx} className="board-row" role="row">
+              {row.map((square, colIdx) => {
+                const isSelected =
+                  selectedSquare?.row === rowIdx &&
+                  selectedSquare?.col === colIdx;
+                const isValidMove = validMoves.has(`${rowIdx},${colIdx}`);
+
+                return (
+                  <Square
+                    key={colIdx}
+                    row={rowIdx}
+                    col={colIdx}
+                    square={square}
+                    isSelected={isSelected}
+                    isValidMove={isValidMove}
+                    onClick={() => onSquareClick(rowIdx, colIdx)}
+                    onMouseEnter={() => setHoveredSquare({ row: rowIdx, col: colIdx })}
+                    onMouseLeave={() => setHoveredSquare(null)}
+                    use3DCanvas={true}
+                  />
+                );
+              })}
             </div>
           ))}
         </div>
       </div>
 
       {/* File labels along the bottom */}
-      <div className="file-labels">
+      <div className="file-labels" aria-hidden="true">
         <div className="rank-label-spacer" />
         {fileLabels.map((label, i) => (
           <div key={i} className="file-label">

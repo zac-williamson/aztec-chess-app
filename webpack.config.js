@@ -1,6 +1,7 @@
 import { createRequire } from "module";
 import webpack from "webpack";
 import HtmlWebpackPlugin from "html-webpack-plugin";
+import CopyPlugin from "copy-webpack-plugin";
 
 const require = createRequire(import.meta.url);
 
@@ -40,6 +41,11 @@ export default (_, argv) => ({
     new webpack.ProvidePlugin({
       Buffer: ["buffer", "Buffer"],
       process: "process/browser",
+    }),
+    new CopyPlugin({
+      patterns: [
+        { from: "app/assets", to: "assets", noErrorOnMissing: true },
+      ],
     }),
   ],
   resolve: {
@@ -82,6 +88,10 @@ export default (_, argv) => ({
     },
     client: {
       overlay: false,
+    },
+    static: {
+      directory: "./app",
+      publicPath: "/",
     },
   },
 });
