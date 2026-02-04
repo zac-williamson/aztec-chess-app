@@ -529,6 +529,60 @@ code, .mono {
   font-size: var(--text-xs);
 }
 
+/* ─── ELO Display ─── */
+
+.elo-display {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--board-border);
+  border-radius: var(--radius-full);
+  padding: var(--space-2) var(--space-4);
+}
+
+.elo-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  transition: all var(--transition-fast);
+}
+
+.elo-badge.white {
+  background: var(--aztec-parchment);
+  color: var(--aztec-ink);
+}
+
+.elo-badge.black {
+  background: var(--aztec-aubergine);
+  color: var(--aztec-orchid);
+}
+
+.elo-badge.you {
+  border: 2px solid var(--aztec-chartreuse);
+  box-shadow: 0 0 8px rgba(212, 255, 40, 0.3);
+}
+
+.elo-icon {
+  font-size: var(--text-base);
+}
+
+.elo-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.elo-vs {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
 /* ─── Chessboard ─── */
 
 .board-container {
@@ -1054,6 +1108,59 @@ code, .mono {
   text-align: center;
 }
 
+/* Saved Games Section */
+.saved-games-section {
+  border: 2px solid var(--aztec-chartreuse);
+  background: rgba(212, 255, 40, 0.05);
+}
+
+.saved-game-row {
+  flex-wrap: wrap;
+}
+
+.saved-game-row .game-id {
+  flex: none;
+  min-width: 80px;
+}
+
+.role-badge-small {
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+}
+
+.role-badge-small.white {
+  background: var(--aztec-parchment);
+  color: var(--aztec-ink);
+}
+
+.role-badge-small.black {
+  background: var(--aztec-aubergine);
+  color: var(--aztec-orchid);
+}
+
+.game-status {
+  flex: 1;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.game-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.btn-danger {
+  color: #ff6b6b;
+}
+
+.btn-danger:hover {
+  background: rgba(255, 107, 107, 0.1);
+  border-color: #ff6b6b;
+}
+
 .divider-with-text {
   display: flex;
   align-items: center;
@@ -1487,4 +1594,120 @@ code, .mono {
     width: 100%;
     max-width: 560px;
   }
+}
+
+/* ─── Victory Hat Modal ─── */
+
+.victory-hat-modal {
+  max-width: 400px;
+  text-align: center;
+  background: linear-gradient(
+    135deg,
+    var(--color-surface) 0%,
+    rgba(212, 255, 40, 0.1) 100%
+  );
+  border: 2px solid var(--aztec-chartreuse);
+  box-shadow: 0 0 40px rgba(212, 255, 40, 0.3);
+  padding: var(--space-6);
+}
+
+.victory-header {
+  margin-bottom: var(--space-4);
+}
+
+.victory-header .game-result-icon {
+  font-size: 3rem;
+  margin-bottom: var(--space-2);
+}
+
+.victory-title {
+  font-size: var(--text-3xl);
+  background: linear-gradient(135deg, var(--aztec-chartreuse) 0%, var(--aztec-aqua) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 var(--space-1) 0;
+}
+
+.victory-subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--text-base);
+  margin: 0;
+}
+
+.hat-reward {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin: var(--space-4) 0;
+}
+
+.hat-reward-label {
+  font-size: var(--text-sm);
+  color: var(--aztec-chartreuse);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: var(--space-2);
+}
+
+.hat-display {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 auto;
+  width: 250px;
+  height: 250px;
+  background: radial-gradient(
+    circle at center,
+    rgba(212, 255, 40, 0.1) 0%,
+    transparent 70%
+  );
+  border-radius: var(--radius-lg);
+}
+
+.hat-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.hat-name {
+  font-size: var(--text-2xl);
+  background: linear-gradient(135deg, var(--aztec-chartreuse) 0%, var(--aztec-aqua) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0;
+}
+
+.hat-description {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.hat-stats {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-6);
+  margin-top: var(--space-2);
+}
+
+.hat-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.stat-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--aztec-aqua);
 }

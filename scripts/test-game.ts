@@ -93,8 +93,7 @@ async function main() {
 
   console.log("Deploying FogOfWarChess contract...");
   const contract = await FogOfWarChessContract.deploy(wallet)
-    .send({ from: whiteAddress })
-    .deployed();
+    .send({ from: whiteAddress });
 
   const contractAddress = contract.address.toString();
   console.log(`✅ Contract deployed at: ${contractAddress}\n`);
@@ -145,8 +144,7 @@ async function main() {
   console.log("Creating game on-chain...");
   const createReceipt = await contract.methods
     .create_game_private(whiteEncryptSecret, whiteMaskSecret, password)
-    .send({ from: whiteAddress })
-    .wait();
+    .send({ from: whiteAddress });
 
   // Parse NewGame event to get game_id
   const newGameEvents = await getDecodedPublicEvents<NewGame>(
@@ -208,8 +206,7 @@ async function main() {
       whiteSecretHashes,
       password
     )
-    .send({ from: blackAddress })
-    .wait();
+    .send({ from: blackAddress });
   console.log(`✅ Black joined game in block ${joinReceipt.blockNumber}\n`);
 
   // ─── White fetches updated secret hashes ───
@@ -248,8 +245,7 @@ async function main() {
   console.log("Sending move transaction...");
   const move1Receipt = await contract.methods
     .make_move_white_private(gameId, whiteGameState, whiteUserState, move1)
-    .send({ from: whiteAddress })
-    .wait();
+    .send({ from: whiteAddress });
 
   // Get MoveEvent
   const move1Events = await getDecodedPublicEvents<MoveEvent>(
@@ -297,8 +293,7 @@ async function main() {
   console.log("Sending move transaction...");
   const move2Receipt = await contract.methods
     .make_move_black_private(gameId, blackGameState, blackUserState, move2)
-    .send({ from: blackAddress })
-    .wait();
+    .send({ from: blackAddress });
 
   // Get MoveEvent
   const move2Events = await getDecodedPublicEvents<MoveEvent>(
@@ -353,8 +348,7 @@ async function main() {
   console.log("Sending capture transaction...");
   const move3Receipt = await contract.methods
     .make_move_white_private(gameId, whiteGameState, whiteUserState, move3)
-    .send({ from: whiteAddress })
-    .wait();
+    .send({ from: whiteAddress });
 
   // Get MoveEvent
   const move3Events = await getDecodedPublicEvents<MoveEvent>(

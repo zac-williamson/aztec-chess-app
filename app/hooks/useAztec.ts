@@ -35,8 +35,7 @@ export function useAztec() {
       const node = createAztecNodeClient(AZTEC_NODE_URL);
       nodeRef.current = node;
 
-      const testWallet = await TestWallet.create(node);
-      const accounts = await getInitialTestAccountsData();
+      const testWallet = await TestWallet.create(node);      const accounts = await getInitialTestAccountsData();
 
       if (index >= accounts.length) {
         throw new Error(`No test account at index ${index}. Available: ${accounts.length}`);

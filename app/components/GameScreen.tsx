@@ -1,12 +1,13 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Chessboard } from "./Chessboard";
 import { FlappyPawn } from "./FlappyPawn";
+import { VictoryHatModal } from "./VictoryHatModal";
 import {
   buildBoardFromUserState,
   isOwnPiece,
   validateMovePattern,
 } from "../lib/chessUtils";
-import type { PlayerRole, GamePhase, BoardSquare } from "../lib/types";
+import type { PlayerRole, GamePhase, BoardSquare, Hat } from "../lib/types";
 
 // Singleton AudioContext for efficient sound playback
 let audioContext: AudioContext | null = null;
@@ -157,6 +158,11 @@ interface GameScreenProps {
   error: string | null;
   opponentJoined: boolean;
   createdGamePassword: string;
+  myElo: number;
+  opponentElo: number;
+  myHat?: Hat | null;
+  opponentHat?: Hat | null;
+  wonHat?: Hat | null;
   onMakeMove: (
     fromRow: number,
     fromCol: number,
@@ -177,6 +183,11 @@ export function GameScreen({
   error,
   opponentJoined,
   createdGamePassword,
+  myElo,
+  opponentElo,
+  myHat,
+  opponentHat,
+  wonHat,
   onMakeMove,
 }: GameScreenProps) {
   const [selectedSquare, setSelectedSquare] = useState<{
@@ -190,6 +201,8 @@ export function GameScreen({
   });
   const [boardHistory, setBoardHistory] = useState<BoardSnapshot[]>([]);
   const [viewingMoveIndex, setViewingMoveIndex] = useState<number>(-1); // -1 means viewing current
+  // Optimistic board state for immediate visual feedback before proof completes
+  const [optimisticBoard, setOptimisticBoard] = useState<BoardSquare[][] | null>(null);
   const prevIsMyTurnRef = useRef<boolean>(isMyTurn);
   const prevMoveCountRef = useRef<number>(0);
   const justLostPieceRef = useRef<boolean>(false);
@@ -197,6 +210,17 @@ export function GameScreen({
   const currentBoard = userState
     ? buildBoardFromUserState(userState, role, confirmedEmptySquares)
     : null;
+
+  // Victory/defeat detection (moved earlier for use in effects)
+  const isVictory = phase === "game_over" && statusMessage.toLowerCase().includes("you captured");
+  const isDefeat = phase === "game_over" && statusMessage.toLowerCase().includes("your king");
+
+  // Clear optimistic board when phase changes from proving (move completed)
+  useEffect(() => {
+    if (phase !== "proving" && optimisticBoard) {
+      setOptimisticBoard(null);
+    }
+  }, [phase, optimisticBoard]);
 
   const moveCount = gameState ? Number(gameState.move_count) : 0;
 
@@ -281,7 +305,7 @@ export function GameScreen({
   const isViewingHistory = viewingMoveIndex >= 0 && viewingMoveIndex < boardHistory.length;
   const displayBoard = isViewingHistory
     ? boardHistory[viewingMoveIndex].board
-    : currentBoard;
+    : (optimisticBoard || currentBoard); // Use optimistic board during proof generation
   const displayMoveNumber = isViewingHistory
     ? boardHistory[viewingMoveIndex].moveNumber
     : moveCount;
@@ -403,8 +427,26 @@ export function GameScreen({
           }));
         }
 
-        await onMakeMove(selectedSquare.row, selectedSquare.col, row, col);
+        // Create optimistic board state for immediate visual feedback
+        const newBoard = currentBoard.map(r => r.map(sq => ({ ...sq })));
+        // Move the piece
+        newBoard[row][col] = {
+          ...newBoard[selectedSquare.row][selectedSquare.col],
+          visible: true,
+        };
+        // Clear the source square
+        newBoard[selectedSquare.row][selectedSquare.col] = {
+          piece: null,
+          pieceColor: null,
+          visible: true,
+          potentiallyVisible: false,
+          isSelected: false,
+        };
+        setOptimisticBoard(newBoard);
         setSelectedSquare(null);
+
+        // Now submit the move (this takes a while for proof generation)
+        await onMakeMove(selectedSquare.row, selectedSquare.col, row, col);
       } else {
         const square = currentBoard[row][col];
         if (isOwnPiece(square, role)) {
@@ -415,7 +457,7 @@ export function GameScreen({
     [phase, isMyTurn, currentBoard, selectedSquare, role, onMakeMove, isViewingHistory]
   );
 
-  const waitingForOpponentToJoin = role === "white" && !opponentJoined;
+  const waitingForOpponentToJoin = role === "black" && !opponentJoined;
   const isYourTurn = isMyTurn && phase === "playing" && !waitingForOpponentToJoin;
   const turnText = waitingForOpponentToJoin
     ? "Waiting for opponent to join..."
@@ -424,8 +466,13 @@ export function GameScreen({
     : "Waiting for opponent...";
   const roleText = role === "white" ? "White" : "Black";
 
-  const isVictory = phase === "game_over" && statusMessage.toLowerCase().includes("you captured");
-  const isDefeat = phase === "game_over" && statusMessage.toLowerCase().includes("your king");
+  // ELO display - White player always shown first
+  const whiteElo = role === "white" ? myElo : opponentElo;
+  const blackElo = role === "black" ? myElo : opponentElo;
+
+  // Hat display - map to white/black
+  const whiteHat = role === "white" ? myHat : opponentHat;
+  const blackHat = role === "black" ? myHat : opponentHat;
 
   // Render captured pieces using unicode symbols
   const pieceSymbols: Record<string, string> = {
@@ -454,6 +501,18 @@ export function GameScreen({
             {turnText}
           </span>
           <span className="move-counter">Move #{moveCount}</span>
+        </div>
+
+        <div className="elo-display">
+          <span className={`elo-badge white ${role === "white" ? "you" : ""}`}>
+            <span className="elo-icon">♔</span>
+            <span className="elo-value">{whiteElo}</span>
+          </span>
+          <span className="elo-vs">vs</span>
+          <span className={`elo-badge black ${role === "black" ? "you" : ""}`}>
+            <span className="elo-icon">♚</span>
+            <span className="elo-value">{blackElo}</span>
+          </span>
         </div>
 
         {gameId !== null && (
@@ -521,6 +580,8 @@ export function GameScreen({
               selectedSquare={isViewingHistory ? null : selectedSquare}
               onSquareClick={handleSquareClick}
               perspective={role}
+              whiteHat={whiteHat}
+              blackHat={blackHat}
             />
           ) : (
             <div className="loading">
@@ -572,29 +633,42 @@ export function GameScreen({
           )}
         </div>
 
-        {/* Right side: Status panel with mini-game (shown when proving or waiting) */}
-        {(phase === "proving" || (!isMyTurn && phase === "playing" && !waitingForOpponentToJoin)) && (
+        {/* Right side: Status panel with mini-game (always visible during gameplay) */}
+        {phase !== "game_over" && !waitingForOpponentToJoin && (
           <div className="game-side-panel animate-slide-in-right">
             <div className="side-panel-status">
-              <div className="spinner-medium" />
-              <h3>{phase === "proving" ? "Generating Proof" : "Opponent's Turn"}</h3>
-              <p>
-                {phase === "proving"
-                  ? "Creating zero-knowledge proof for your move..."
-                  : "Waiting for opponent to make their move..."}
-              </p>
+              {phase === "proving" ? (
+                <>
+                  <div className="spinner-medium" />
+                  <h3>Generating Proof</h3>
+                  <p>Creating zero-knowledge proof for your move...</p>
+                </>
+              ) : !isMyTurn ? (
+                <>
+                  <div className="spinner-medium" />
+                  <h3>Opponent's Turn</h3>
+                  <p>Waiting for opponent to make their move...</p>
+                </>
+              ) : (
+                <>
+                  <h3>Your Turn</h3>
+                  <p>Select a piece and make your move!</p>
+                </>
+              )}
             </div>
 
             <div className="mini-game-section">
-              <p className="mini-game-label">Play while you wait!</p>
-              <FlappyPawn playerColor={role} />
+              <p className="mini-game-label">
+                {isMyTurn && phase === "playing" ? "Make your move first!" : "Play while you wait!"}
+              </p>
+              <FlappyPawn playerColor={role} disabled={isMyTurn && phase === "playing"} />
             </div>
           </div>
         )}
       </div>
 
-      {/* Game over overlay */}
-      {phase === "game_over" && (
+      {/* Game over overlay - show for defeats or victories without a hat */}
+      {phase === "game_over" && !(isVictory && wonHat) && (
         <div className="overlay animate-fade-in">
           <div className={`overlay-content animate-scale-in ${isVictory ? "victory" : isDefeat ? "defeat" : ""}`}>
             <div className="game-result-icon">
@@ -612,6 +686,14 @@ export function GameScreen({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Victory Hat Modal - show for victories with a hat reward */}
+      {phase === "game_over" && isVictory && wonHat && (
+        <VictoryHatModal
+          hat={wonHat}
+          onPlayAgain={() => window.location.reload()}
+        />
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
-import type { OpenGame } from "../lib/types";
+import type { OpenGame, SavedGame } from "../lib/types";
 
 interface LobbyScreenProps {
   phase: string;
@@ -7,9 +7,11 @@ interface LobbyScreenProps {
   error: string | null;
   openGames: OpenGame[];
   isLoadingGames: boolean;
-  playerIndex: number;
+  savedGames: SavedGame[];
   onCreateGame: (password: number) => void;
   onJoinGame: (gameId: number, password: number) => void;
+  onResumeGame: (savedGame: SavedGame) => void;
+  onDeleteSavedGame: (gameId: number) => void;
   onFetchOpenGames: () => Promise<void>;
 }
 
@@ -19,9 +21,11 @@ export function LobbyScreen({
   error,
   openGames,
   isLoadingGames,
-  playerIndex,
+  savedGames,
   onCreateGame,
   onJoinGame,
+  onResumeGame,
+  onDeleteSavedGame,
   onFetchOpenGames,
 }: LobbyScreenProps) {
   const [createPassword, setCreatePassword] = useState("");
@@ -29,6 +33,7 @@ export function LobbyScreen({
   const [joinPassword, setJoinPassword] = useState("");
   const [joiningGameId, setJoiningGameId] = useState<number | null>(null);
   const [joinModalPassword, setJoinModalPassword] = useState("");
+  const [deletingGameId, setDeletingGameId] = useState<number | null>(null);
 
   const isBusy = phase === "creating" || phase === "joining";
 
@@ -60,6 +65,21 @@ export function LobbyScreen({
     setJoinModalPassword("");
   }, []);
 
+  const handleDeleteClick = useCallback((gameId: number) => {
+    setDeletingGameId(gameId);
+  }, []);
+
+  const handleConfirmDelete = useCallback(() => {
+    if (deletingGameId !== null) {
+      onDeleteSavedGame(deletingGameId);
+      setDeletingGameId(null);
+    }
+  }, [deletingGameId, onDeleteSavedGame]);
+
+  const handleCancelDelete = useCallback(() => {
+    setDeletingGameId(null);
+  }, []);
+
   // Creating/Joining in progress
   if (phase === "creating" || phase === "joining") {
     return (
@@ -73,18 +93,47 @@ export function LobbyScreen({
     );
   }
 
+
   // Main lobby screen
   return (
     <div className="screen lobby-screen animate-fade-in">
       <h2>Game Lobby</h2>
-      <div className="player-info">
-        Connected as <strong>Player {playerIndex + 1}</strong>
-        {playerIndex === 0 ? (
-          <span className="player-switch"> &middot; <a href="?player=1">Switch to Player 2</a></span>
-        ) : (
-          <span className="player-switch"> &middot; <a href="?player=0">Switch to Player 1</a></span>
-        )}
-      </div>
+
+      {/* Saved Games Section */}
+      {savedGames.length > 0 && (
+        <div className="lobby-section saved-games-section">
+          <div className="section-header">
+            <h3>Your Games</h3>
+          </div>
+          <div className="games-list">
+            {savedGames.map((game) => (
+              <div key={game.gameId} className="game-row saved-game-row">
+                <span className="game-id">Game #{game.gameId}</span>
+                <span className={`role-badge-small ${game.role}`}>
+                  {game.role === "white" ? "White" : "Black"}
+                </span>
+                <div className="game-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => onResumeGame(game)}
+                    disabled={isBusy}
+                  >
+                    Resume
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm btn-danger"
+                    onClick={() => handleDeleteClick(game.gameId)}
+                    disabled={isBusy}
+                    title="Delete saved game"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Password modal for joining games */}
       {joiningGameId !== null && (
@@ -105,6 +154,28 @@ export function LobbyScreen({
               </button>
               <button className="btn btn-primary" onClick={handleConfirmJoin}>
                 Join
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deletingGameId !== null && (
+        <div className="modal-overlay" onClick={handleCancelDelete}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete Game?</h3>
+            <p>
+              Are you sure you want to delete Game #{deletingGameId}?
+              <br />
+              <strong>This will permanently remove your ability to rejoin this game.</strong>
+            </p>
+            <div className="modal-buttons">
+              <button className="btn btn-secondary" onClick={handleCancelDelete}>
+                Cancel
+              </button>
+              <button className="btn btn-danger" onClick={handleConfirmDelete}>
+                Delete
               </button>
             </div>
           </div>
@@ -162,7 +233,7 @@ export function LobbyScreen({
         {/* Create Game */}
         <div className="lobby-action-box">
           <h3>Create Game</h3>
-          <p className="note">You will play as White</p>
+          <p className="note">You will play as Black</p>
           <label>
             Password (optional)
             <input
@@ -185,7 +256,7 @@ export function LobbyScreen({
         {/* Join by ID */}
         <div className="lobby-action-box">
           <h3>Join by Game ID</h3>
-          <p className="note">You will play as Black</p>
+          <p className="note">You will play as White</p>
           <label>
             Game ID
             <input

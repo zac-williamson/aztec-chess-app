@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Square } from "./Square";
 import { ChessboardCanvas } from "./ChessboardCanvas";
-import type { BoardSquare, PlayerRole } from "../lib/types";
+import type { BoardSquare, PlayerRole, Hat } from "../lib/types";
 import { FILE_LABELS, RANK_LABELS, getValidMoves } from "../lib/chessUtils";
 
 const SQUARE_SIZE = 70;
@@ -11,6 +11,8 @@ interface ChessboardProps {
   selectedSquare: { row: number; col: number } | null;
   onSquareClick: (row: number, col: number) => void;
   perspective: PlayerRole;
+  whiteHat?: Hat | null;
+  blackHat?: Hat | null;
 }
 
 export function Chessboard({
@@ -18,6 +20,8 @@ export function Chessboard({
   selectedSquare,
   onSquareClick,
   perspective,
+  whiteHat,
+  blackHat,
 }: ChessboardProps) {
   const [hoveredSquare, setHoveredSquare] = useState<{ row: number; col: number } | null>(null);
   // File labels along the bottom
@@ -64,6 +68,8 @@ export function Chessboard({
             hoveredSquare={hoveredSquare}
             squareSize={SQUARE_SIZE}
             perspective={perspective}
+            whiteHat={whiteHat}
+            blackHat={blackHat}
           />
 
           {/* Interactive squares layer */}

@@ -108,7 +108,7 @@ export class FogOfWarChessContract extends ContractBase {
   }
   
 
-  public static get storage(): ContractStorageLayout<'game_counter' | 'game_secret_hashes' | 'game_hashes'> {
+  public static get storage(): ContractStorageLayout<'game_counter' | 'game_secret_hashes' | 'game_hashes' | 'elo_ratings' | 'game_players' | 'hat_nft_address'> {
       return {
         game_counter: {
       slot: new Fr(1n),
@@ -118,8 +118,17 @@ game_secret_hashes: {
     },
 game_hashes: {
       slot: new Fr(3n),
+    },
+elo_ratings: {
+      slot: new Fr(4n),
+    },
+game_players: {
+      slot: new Fr(5n),
+    },
+hat_nft_address: {
+      slot: new Fr(6n),
     }
-      } as ContractStorageLayout<'game_counter' | 'game_secret_hashes' | 'game_hashes'>;
+      } as ContractStorageLayout<'game_counter' | 'game_secret_hashes' | 'game_hashes' | 'elo_ratings' | 'game_players' | 'hat_nft_address'>;
     }
     
 
@@ -144,8 +153,17 @@ game_hashes: {
     /** __empty_white_state() */
     __empty_white_state: (() => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
+    /** __get_elo_rating(player: struct) */
+    __get_elo_rating: ((player: AztecAddressLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+
+    /** __get_game_players(game_id: integer) */
+    __get_game_players: ((game_id: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+
     /** __get_game_secret_hashes(game_id: integer) */
     __get_game_secret_hashes: ((game_id: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+
+    /** __get_hat_nft_address() */
+    __get_hat_nft_address: (() => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
     /** __update_game_state_from_move(input_state: struct, user_state: struct, player_id: field) */
     __update_game_state_from_move: ((input_state: { game_ended: boolean, move_count: FieldLike, mpc_state: { round_number: (bigint | number), user_encrypt_secret_hashes: FieldLike[], user_mask_secret_hashes: FieldLike[], previous_output_states: { ciphertext: { data: FieldLike[] }, mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[], user_updated_mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[][] }[] } }, user_state: { ciphertext: { data: FieldLike[] }, mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[], user_updated_mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[][] }, player_id: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
@@ -156,8 +174,8 @@ game_hashes: {
     /** create_game_private(user_secret: field, user_mask: field, password: field) */
     create_game_private: ((user_secret: FieldLike, user_mask: FieldLike, password: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
-    /** join_game_private(game_id: integer, user_secret: field, user_mask: field, white_secret_hashes: array, password: field) */
-    join_game_private: ((game_id: (bigint | number), user_secret: FieldLike, user_mask: FieldLike, white_secret_hashes: FieldLike[], password: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+    /** join_game_private(game_id: integer, user_secret: field, user_mask: field, black_secret_hashes: array, password: field) */
+    join_game_private: ((game_id: (bigint | number), user_secret: FieldLike, user_mask: FieldLike, black_secret_hashes: FieldLike[], password: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
     /** make_move_black_private(game_id: integer, game_state: struct, user_state: struct, move_data: struct) */
     make_move_black_private: ((game_id: (bigint | number), game_state: { game_ended: boolean, move_count: FieldLike, mpc_state: { round_number: (bigint | number), user_encrypt_secret_hashes: FieldLike[], user_mask_secret_hashes: FieldLike[], previous_output_states: { ciphertext: { data: FieldLike[] }, mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[], user_updated_mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[][] }[] } }, user_state: { encrypt_secret: FieldLike, mask_secret: FieldLike, visible_squares: FieldLike[], game_state: { id: FieldLike, player_id: FieldLike, has_moved: FieldLike }[] }, move_data: { x1: FieldLike, y1: FieldLike, x2: FieldLike, y2: FieldLike }) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
@@ -170,6 +188,9 @@ game_hashes: {
 
     /** public_dispatch(selector: field) */
     public_dispatch: ((selector: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+
+    /** set_hat_nft_address(nft_address: struct) */
+    set_hat_nft_address: ((nft_address: AztecAddressLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
     /** setup() */
     setup: (() => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;

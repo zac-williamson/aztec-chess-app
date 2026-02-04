@@ -16,10 +16,10 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "@aztec/accounts": "3.0.0-devnet.20251212",
-    "@aztec/aztec.js": "3.0.0-devnet.20251212",
-    "@aztec/kv-store": "3.0.0-devnet.20251212",
-    "@aztec/test-wallet": "3.0.0-devnet.20251212",
+    "@aztec/accounts": "0.0.1-commit.23b0eb0",
+    "@aztec/aztec.js": "0.0.1-commit.23b0eb0",
+    "@aztec/kv-store": "0.0.1-commit.23b0eb0",
+    "@aztec/test-wallet": "0.0.1-commit.23b0eb0",
     "@types/three": "^0.182.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

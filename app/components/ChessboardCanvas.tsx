@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import type { BoardSquare, PlayerRole } from '../lib/types';
+import type { BoardSquare, PlayerRole, Hat } from '../lib/types';
 
 // Aztec brand colors
 const COLORS = {
@@ -27,6 +27,8 @@ interface ChessboardCanvasProps {
   hoveredSquare: { row: number; col: number } | null;
   squareSize: number;
   perspective: 'white' | 'black';
+  whiteHat?: Hat | null;
+  blackHat?: Hat | null;
 }
 
 // Shared geometry cache
@@ -142,6 +144,265 @@ function addBlush(group: THREE.Group, materials: ReturnType<typeof getMaterials>
   rightBlush.position.set(spacing, yPos, 0.16);
 
   group.add(leftBlush, rightBlush);
+}
+
+// ─── Hat Quality Colors ───
+const HAT_QUALITY_COLORS = [
+  { base: 0x666666, emissive: 0x000000 },  // 0: Tattered - dull gray
+  { base: 0x8B4513, emissive: 0x000000 },  // 1: Plain - brown
+  { base: 0x4169E1, emissive: 0x000000 },  // 2: Plain - blue
+  { base: 0xC0C0C0, emissive: 0x111111 },  // 3: Fine - silver
+  { base: 0xFFD700, emissive: 0x222200 },  // 4: Elegant - gold
+  { base: 0x9932CC, emissive: 0x220033 },  // 5: Majestic - purple glow
+  { base: 0xFF4500, emissive: 0x331100 },  // 6: Legendary - orange glow
+  { base: 0x00FFFF, emissive: 0x003333 },  // 7: Mythic - cyan animated
+];
+
+function getHatMaterial(quality: number): THREE.MeshStandardMaterial {
+  const colors = HAT_QUALITY_COLORS[Math.min(quality, 7)];
+  return new THREE.MeshStandardMaterial({
+    color: colors.base,
+    emissive: colors.emissive,
+    emissiveIntensity: quality >= 5 ? 0.3 : 0.1,
+    roughness: quality >= 4 ? 0.3 : 0.7,
+    metalness: quality >= 3 ? 0.5 : 0.1,
+  });
+}
+
+// ─── Hat Geometry Functions ───
+
+// Type 0: Crown - Upset victory (+200 delta)
+function createCrown(quality: number): THREE.Group {
+  const group = new THREE.Group();
+  const mat = getHatMaterial(quality);
+
+  // Crown base band
+  const bandGeom = new THREE.CylinderGeometry(0.18, 0.16, 0.08, 16);
+  const band = new THREE.Mesh(bandGeom, mat);
+  band.position.y = 0;
+  group.add(band);
+
+  // Crown points (5 spikes)
+  for (let i = 0; i < 5; i++) {
+    const spikeGeom = new THREE.ConeGeometry(0.05, 0.15, 8);
+    const spike = new THREE.Mesh(spikeGeom, mat);
+    const angle = (i / 5) * Math.PI * 2;
+    spike.position.set(
+      Math.cos(angle) * 0.12,
+      0.11,
+      Math.sin(angle) * 0.12
+    );
+    group.add(spike);
+
+    // Gem on each spike for higher qualities
+    if (quality >= 4) {
+      const gemGeom = new THREE.OctahedronGeometry(0.025);
+      const gemMat = new THREE.MeshStandardMaterial({
+        color: quality >= 6 ? 0xFF0000 : 0x00FF00,
+        emissive: quality >= 6 ? 0x330000 : 0x003300,
+        emissiveIntensity: 0.5,
+      });
+      const gem = new THREE.Mesh(gemGeom, gemMat);
+      gem.position.set(
+        Math.cos(angle) * 0.12,
+        0.19,
+        Math.sin(angle) * 0.12
+      );
+      group.add(gem);
+    }
+  }
+
+  return group;
+}
+
+// Type 1: Laurel Wreath - Strong victory (+100 to +200)
+function createLaurelWreath(quality: number): THREE.Group {
+  const group = new THREE.Group();
+  const mat = getHatMaterial(quality);
+
+  // Create wreath as a torus with leaves
+  const torusGeom = new THREE.TorusGeometry(0.15, 0.02, 8, 16);
+  const torus = new THREE.Mesh(torusGeom, mat);
+  torus.rotation.x = Math.PI / 2;
+  group.add(torus);
+
+  // Add leaves around the wreath
+  for (let i = 0; i < 12; i++) {
+    const leafGeom = new THREE.SphereGeometry(0.04, 8, 8);
+    leafGeom.scale(0.5, 1, 2);
+    const leaf = new THREE.Mesh(leafGeom, mat);
+    const angle = (i / 12) * Math.PI * 2;
+    leaf.position.set(
+      Math.cos(angle) * 0.15,
+      0.03,
+      Math.sin(angle) * 0.15
+    );
+    leaf.rotation.y = angle;
+    leaf.rotation.x = 0.3;
+    group.add(leaf);
+  }
+
+  return group;
+}
+
+// Type 2: Wizard Hat - Fair match (-100 to +100)
+function createWizardHat(quality: number): THREE.Group {
+  const group = new THREE.Group();
+  const mat = getHatMaterial(quality);
+
+  // Tall cone
+  const coneGeom = new THREE.ConeGeometry(0.15, 0.35, 16);
+  const cone = new THREE.Mesh(coneGeom, mat);
+  cone.position.y = 0.17;
+  cone.rotation.z = 0.1; // Slightly tilted
+  group.add(cone);
+
+  // Brim
+  const brimGeom = new THREE.CylinderGeometry(0.22, 0.22, 0.02, 16);
+  const brim = new THREE.Mesh(brimGeom, mat);
+  brim.position.y = 0;
+  group.add(brim);
+
+  // Stars for higher quality
+  if (quality >= 3) {
+    const starMat = new THREE.MeshStandardMaterial({
+      color: 0xFFFF00,
+      emissive: 0x333300,
+      emissiveIntensity: 0.5,
+    });
+    for (let i = 0; i < 3; i++) {
+      const starGeom = new THREE.OctahedronGeometry(0.02);
+      const star = new THREE.Mesh(starGeom, starMat);
+      star.position.set(
+        0.08 - i * 0.03,
+        0.1 + i * 0.08,
+        0.08
+      );
+      group.add(star);
+    }
+  }
+
+  return group;
+}
+
+// Type 3: Top Hat - Slight advantage (-100 to -200)
+function createTopHat(quality: number): THREE.Group {
+  const group = new THREE.Group();
+  const mat = getHatMaterial(quality);
+
+  // Tall cylinder
+  const cylGeom = new THREE.CylinderGeometry(0.12, 0.12, 0.25, 16);
+  const cyl = new THREE.Mesh(cylGeom, mat);
+  cyl.position.y = 0.12;
+  group.add(cyl);
+
+  // Brim
+  const brimGeom = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 16);
+  const brim = new THREE.Mesh(brimGeom, mat);
+  brim.position.y = 0;
+  group.add(brim);
+
+  // Band
+  const bandGeom = new THREE.CylinderGeometry(0.125, 0.125, 0.03, 16);
+  const bandMat = new THREE.MeshStandardMaterial({
+    color: quality >= 4 ? 0xFFD700 : 0x8B0000,
+  });
+  const band = new THREE.Mesh(bandGeom, bandMat);
+  band.position.y = 0.02;
+  group.add(band);
+
+  return group;
+}
+
+// Type 4: Bowler Hat - Moderate advantage (-200 to -300)
+function createBowlerHat(quality: number): THREE.Group {
+  const group = new THREE.Group();
+  const mat = getHatMaterial(quality);
+
+  // Rounded dome
+  const domeGeom = new THREE.SphereGeometry(0.12, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  const dome = new THREE.Mesh(domeGeom, mat);
+  dome.position.y = 0.05;
+  group.add(dome);
+
+  // Short cylinder under dome
+  const cylGeom = new THREE.CylinderGeometry(0.12, 0.12, 0.05, 16);
+  const cyl = new THREE.Mesh(cylGeom, mat);
+  cyl.position.y = 0.02;
+  group.add(cyl);
+
+  // Brim
+  const brimGeom = new THREE.CylinderGeometry(0.18, 0.18, 0.02, 16);
+  const brim = new THREE.Mesh(brimGeom, mat);
+  brim.position.y = 0;
+  group.add(brim);
+
+  return group;
+}
+
+// Type 5: Baseball Cap - Large advantage (-300 to -400)
+function createBaseballCap(quality: number): THREE.Group {
+  const group = new THREE.Group();
+  const mat = getHatMaterial(quality);
+
+  // Cap dome (half sphere)
+  const capGeom = new THREE.SphereGeometry(0.14, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  const cap = new THREE.Mesh(capGeom, mat);
+  cap.position.y = 0;
+  group.add(cap);
+
+  // Bill/visor
+  const billGeom = new THREE.CylinderGeometry(0.08, 0.1, 0.01, 16, 1, false, 0, Math.PI);
+  const bill = new THREE.Mesh(billGeom, mat);
+  bill.rotation.x = Math.PI / 2;
+  bill.position.set(0, 0, 0.12);
+  group.add(bill);
+
+  // Button on top
+  const buttonGeom = new THREE.SphereGeometry(0.02, 8, 8);
+  const button = new THREE.Mesh(buttonGeom, mat);
+  button.position.y = 0.14;
+  group.add(button);
+
+  return group;
+}
+
+// Type 6: Dunce Cap - Expected win (< -400)
+function createDunceCap(quality: number): THREE.Group {
+  const group = new THREE.Group();
+  const mat = getHatMaterial(quality);
+
+  // Simple cone
+  const coneGeom = new THREE.ConeGeometry(0.12, 0.3, 12);
+  const cone = new THREE.Mesh(coneGeom, mat);
+  cone.position.y = 0.15;
+  group.add(cone);
+
+  // "D" text simulation with a sphere
+  if (quality >= 2) {
+    const textMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+    const textGeom = new THREE.SphereGeometry(0.03, 8, 8);
+    textGeom.scale(2, 1, 0.3);
+    const text = new THREE.Mesh(textGeom, textMat);
+    text.position.set(0, 0.12, 0.1);
+    group.add(text);
+  }
+
+  return group;
+}
+
+// Create hat based on type and quality
+function createHat(hatType: number, hatQuality: number): THREE.Group {
+  switch (hatType) {
+    case 0: return createCrown(hatQuality);
+    case 1: return createLaurelWreath(hatQuality);
+    case 2: return createWizardHat(hatQuality);
+    case 3: return createTopHat(hatQuality);
+    case 4: return createBowlerHat(hatQuality);
+    case 5: return createBaseballCap(hatQuality);
+    case 6: return createDunceCap(hatQuality);
+    default: return createWizardHat(hatQuality);
+  }
 }
 
 // Piece creation functions (simplified for performance)
@@ -349,22 +610,27 @@ function createPiece(piece: PieceType, color: PieceColor): THREE.Group {
   }
 }
 
-export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareSize, perspective }: ChessboardCanvasProps) {
+export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareSize, perspective, whiteHat, blackHat }: ChessboardCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const piecesRef = useRef<Map<string, THREE.Group>>(new Map());
+  const hatsRef = useRef<Map<string, THREE.Group>>(new Map());
   const animationRef = useRef<number>(0);
   const timeRef = useRef<number>(0);
   const hoveredSquareRef = useRef(hoveredSquare);
   const perspectiveRef = useRef(perspective);
   const boardRef = useRef(board);
+  const whiteHatRef = useRef(whiteHat);
+  const blackHatRef = useRef(blackHat);
 
   // Keep refs in sync
   hoveredSquareRef.current = hoveredSquare;
   perspectiveRef.current = perspective;
   boardRef.current = board;
+  whiteHatRef.current = whiteHat;
+  blackHatRef.current = blackHat;
 
   const canvasSize = squareSize * 8;
 
@@ -447,16 +713,34 @@ export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareS
 
         // Bobbing
         const baseY = pieceGroup.userData.baseY || 0;
+        let currentY = baseY;
+        let currentScale = 1.0;
+
         if (isSelected) {
-          pieceGroup.position.y = baseY + Math.abs(Math.sin(time * 5)) * 0.15;
-          pieceGroup.scale.setScalar(1.15);
+          currentY = baseY + Math.abs(Math.sin(time * 5)) * 0.15;
+          currentScale = 1.15;
         } else if (isHovered && isPlayerPiece) {
           // Subtle lift when hovering
-          pieceGroup.position.y = baseY + 0.08;
-          pieceGroup.scale.setScalar(1.05);
+          currentY = baseY + 0.08;
+          currentScale = 1.05;
         } else {
-          pieceGroup.position.y = baseY + Math.sin(time * 2 + row + col) * 0.03;
-          pieceGroup.scale.setScalar(1.0);
+          currentY = baseY + Math.sin(time * 2 + row + col) * 0.03;
+        }
+
+        pieceGroup.position.y = currentY;
+        pieceGroup.scale.setScalar(currentScale);
+
+        // Animate hat on King (hat is now a child of king, so it follows automatically)
+        const hat = hatsRef.current.get(key);
+        if (hat) {
+          // Extra sparkle/spin animation for high-quality hats
+          const hatQuality = hat.userData.hatQuality || 0;
+          if (hatQuality >= 5) {
+            hat.rotation.y = Math.sin(time * 3) * 0.15;
+          } else {
+            // Subtle idle animation for lower quality hats
+            hat.rotation.y = Math.sin(time * 2) * 0.05;
+          }
         }
       });
 
@@ -480,6 +764,7 @@ export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareS
 
     const scene = sceneRef.current;
     const currentPieces = piecesRef.current;
+    const currentHats = hatsRef.current;
     const newPieceKeys = new Set<string>();
 
     // Add/update pieces
@@ -487,16 +772,21 @@ export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareS
       row.forEach((square, colIdx) => {
         if (square.piece && square.pieceColor) {
           const key = `${rowIdx}-${colIdx}`;
-          const pieceKey = `${key}-${square.piece}-${square.pieceColor}`;
+          const hatData = square.pieceColor === 'white' ? whiteHat : blackHat;
+          const hatKey = hatData ? `${hatData.hatType}-${hatData.hatQuality}` : 'none';
+          const pieceKey = `${key}-${square.piece}-${square.pieceColor}-${hatKey}`;
           newPieceKeys.add(key);
 
           // Check if we need to create or update this piece
           const existingPiece = currentPieces.get(key);
           if (!existingPiece || existingPiece.userData.pieceKey !== pieceKey) {
-            // Remove old piece if exists
+            // Remove old piece and hat if exists
             if (existingPiece) {
               scene.remove(existingPiece);
             }
+            // Hat is a child of the piece, so it's removed when piece is removed
+            // Just clear the reference
+            currentHats.delete(key);
 
             // Create new piece
             const piece = createPiece(
@@ -511,22 +801,40 @@ export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareS
             piece.position.set(x, 0, z);
             piece.userData.baseY = 0;
             piece.userData.pieceKey = pieceKey;
+            piece.userData.isKing = square.piece === 'K';
+            piece.userData.pieceColor = square.pieceColor;
 
             scene.add(piece);
             currentPieces.set(key, piece);
+
+            // Add hat to King if player has one
+            if (square.piece === 'K' && hatData) {
+              const hat = createHat(hatData.hatType, hatData.hatQuality);
+              // Position hat on top of King's head (relative to piece, not world)
+              hat.position.set(0, 1.15, 0);
+              hat.userData.parentKey = key;
+              hat.userData.hatQuality = hatData.hatQuality;
+              // Add hat as child of king so it follows rotation/tilt
+              piece.add(hat);
+              currentHats.set(key, hat);
+            }
           }
         }
       });
     });
 
-    // Remove pieces that are no longer on the board
+    // Remove pieces and hats that are no longer on the board
     currentPieces.forEach((piece, key) => {
       if (!newPieceKeys.has(key)) {
         scene.remove(piece);
         currentPieces.delete(key);
+
+        // Hat is a child of the piece, so it's removed when piece is removed
+        // Just clear the reference
+        currentHats.delete(key);
       }
     });
-  }, [board]);
+  }, [board, whiteHat, blackHat]);
 
   return (
     <div

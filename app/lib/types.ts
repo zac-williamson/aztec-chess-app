@@ -37,3 +37,57 @@ export interface OpenGame {
   gameId: number;
   hasPassword: boolean;
 }
+
+export interface SavedGame {
+  gameId: number;
+  role: PlayerRole;
+  contractAddress: string;
+  playerAddress: string;
+  // Only store secrets and starting point - replay from chain to get current state
+  encryptSecret: string; // Fr as hex string
+  maskSecret: string; // Fr as hex string
+  startBlock: number; // Block when game was created/joined - replay events from here
+  savedAt: number; // timestamp
+}
+
+// NFT Hat types
+export interface Hat {
+  tokenId: number;
+  gameId: number;
+  hatType: number;   // 0-6, based on ELO delta
+  hatQuality: number; // 0-7, based on winner's ELO
+}
+
+// Hat type names based on ELO delta (winner_elo - loser_elo)
+export const HAT_TYPE_NAMES: Record<number, string> = {
+  0: "Crown",         // Upset victory (+200 delta)
+  1: "Laurel Wreath", // +100 to +200
+  2: "Wizard Hat",    // Fair match (-100 to +100)
+  3: "Top Hat",       // -100 to -200
+  4: "Bowler Hat",    // -200 to -300
+  5: "Baseball Cap",  // -300 to -400
+  6: "Dunce Cap",     // Expected win (< -400)
+};
+
+// Hat quality names based on winner's ELO
+export const HAT_QUALITY_NAMES: Record<number, string> = {
+  0: "Tattered",
+  1: "Plain",
+  2: "Plain",
+  3: "Fine",
+  4: "Elegant",
+  5: "Majestic",
+  6: "Legendary",
+  7: "Mythic",
+};
+
+// Hat type descriptions
+export const HAT_TYPE_DESCRIPTIONS: Record<number, string> = {
+  0: "Earned by defeating a much stronger opponent!",
+  1: "Earned by defeating a stronger opponent.",
+  2: "Earned in a fair, evenly matched battle.",
+  3: "Earned against a slightly weaker opponent.",
+  4: "Earned against a weaker opponent.",
+  5: "Earned against a much weaker opponent.",
+  6: "Earned against a significantly weaker opponent.",
+};
