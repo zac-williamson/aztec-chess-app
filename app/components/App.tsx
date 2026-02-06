@@ -8,7 +8,7 @@ import type { Hat } from "../lib/types";
 
 export function App() {
   const aztec = useAztec();
-  const game = useChessGame(aztec.wallet, aztec.address, aztec.node);
+  const game = useChessGame(aztec.wallet, aztec.address, aztec.node, aztec.feePaymentMethod);
   const { bestHat: myHat, fetchHatForGame } = usePlayerHats(aztec.wallet, aztec.address, aztec.node);
   const [wonHat, setWonHat] = useState<Hat | null>(null);
   const lastCheckedGameRef = useRef<number | null>(null);
@@ -86,23 +86,18 @@ export function App() {
 
         {aztec.isConnecting && (
           <div className="status-bar spinner animate-slide-up">
-            Connecting to Aztec network (Player {aztec.playerIndex})...
+            Connecting to Aztec Devnet...
           </div>
         )}
 
         {aztec.error && (
-          <>
-            <div className="error-bar animate-slide-up">{aztec.error}</div>
-            <p className="note mt-8">
-              Open as Player 1: <a href="?player=0">?player=0</a><br />
-              Open as Player 2: <a href="?player=1">?player=1</a>
-            </p>
-          </>
+          <div className="error-bar animate-slide-up">{aztec.error}</div>
         )}
 
         {!aztec.error && (
           <p className="note mt-8">
-            Requires an Aztec sandbox running at localhost:8080
+            Creating your account on Aztec Devnet...<br />
+            This may take a moment on first load.
           </p>
         )}
       </div>

@@ -1,5 +1,5 @@
 {
-  "contractAddress": "0x0d911d126db4694a0c154778622bebc70f6c11bb8545969038fd8f46e74b72f0",
-  "deployedAt": "2026-02-04T10:41:14.716Z",
-  "network": "http://localhost:8080"
+  "contractAddress": "0x08af9b620d09e5b0b46afe821cfba917f7bec6323c9dea03872ef7892c607edf",
+  "deployedAt": "2026-02-05T18:15:29.192Z",
+  "network": "https://nextnet.aztec-labs.com"
 }

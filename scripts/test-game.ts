@@ -12,11 +12,14 @@
  *
  * Usage:
  *   npx tsx scripts/test-game.ts
+ *
+ * Environment variables:
+ *   AZTEC_NODE_URL - Override the Aztec node URL (default: devnet)
  */
 
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { TestWallet } from "@aztec/test-wallet/server";
-import { getInitialTestAccountsData } from "@aztec/accounts/testing";
+import { SchnorrAccountContract } from "@aztec/accounts/schnorr/lazy";
+import { deriveSigningKey } from "@aztec/stdlib/keys";
 import { getDecodedPublicEvents } from "@aztec/aztec.js/events";
 import { Fr } from "@aztec/aztec.js/fields";
 import {
@@ -29,10 +32,23 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
+// Import PXE and wallet utilities
+import { getPXEConfig } from "@aztec/pxe/config";
+import { TestWallet } from "@aztec/test-wallet/server";
+import { createLogger } from "@aztec/foundation/log";
+
+// Import sponsored fee payment utilities
+import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
+import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
+import { SPONSORED_FPC_SALT } from "@aztec/constants";
+import { getContractInstanceFromInstantiationParams } from "@aztec/stdlib/contract";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const AZTEC_NODE_URL = process.env.AZTEC_NODE_URL || "http://localhost:8080";
+// Default to nextnet, allow override for local development
+const DEFAULT_NODE_URL = "https://nextnet.aztec-labs.com";
+const AZTEC_NODE_URL = process.env.AZTEC_NODE_URL || DEFAULT_NODE_URL;
 const CONFIG_PATH = path.join(__dirname, "../app/config/contract-address.json");
 
 // Chess coordinate helpers
@@ -56,6 +72,45 @@ const PIECE_IDS = {
   KING: 7,
 };
 
+// Get the SponsoredFPC contract instance (same pattern as deploy.ts)
+async function getSponsoredFPCContract() {
+  const instance = await getContractInstanceFromInstantiationParams(SponsoredFPCContractArtifact, {
+    salt: new Fr(SPONSORED_FPC_SALT),
+  });
+  return instance;
+}
+
+/**
+ * Create a test wallet with a specific account (using TestWallet like deploy.ts)
+ */
+async function createTestWallet(
+  node: any,
+  accountSecret: Fr,
+  dataDirectorySuffix: string
+): Promise<{ wallet: TestWallet; address: any; feePaymentMethod: SponsoredFeePaymentMethod }> {
+  const config = getPXEConfig();
+  config.proverEnabled = true;
+
+  const wallet = await TestWallet.create(node, config, {
+    proverOrOptions: {
+      logger: createLogger(`bb:${dataDirectorySuffix}`),
+    },
+  });
+
+  // Register the SponsoredFPC contract for fee payments
+  const sponsoredFPCContract = await getSponsoredFPCContract();
+  await wallet.registerContract(sponsoredFPCContract, SponsoredFPCContractArtifact);
+  const feePaymentMethod = new SponsoredFeePaymentMethod(sponsoredFPCContract.address);
+
+  // Create account using TestWallet's helper
+  const signingKey = deriveSigningKey(accountSecret);
+  const accountManager = await wallet.createSchnorrAccount(accountSecret, Fr.ZERO, signingKey);
+
+  const address = accountManager.address;
+
+  return { wallet, address, feePaymentMethod };
+}
+
 async function main() {
   console.log("═══════════════════════════════════════════════════════════");
   console.log("  Fog of War Chess - Integration Test");
@@ -65,23 +120,14 @@ async function main() {
   console.log(`Connecting to Aztec node at ${AZTEC_NODE_URL}...`);
   const node = createAztecNodeClient(AZTEC_NODE_URL);
 
-  console.log("Creating wallet...");
-  const wallet = await TestWallet.create(node);
+  console.log("Creating wallets for white and black players...");
 
-  // Get test accounts
-  const [whiteAccountData, blackAccountData] = await getInitialTestAccountsData();
+  // Use deterministic secrets for test accounts
+  const whiteSecret = new Fr(1n);
+  const blackSecret = new Fr(2n);
 
-  const whiteAccount = await wallet.createSchnorrAccount(
-    whiteAccountData.secret,
-    whiteAccountData.salt
-  );
-  const blackAccount = await wallet.createSchnorrAccount(
-    blackAccountData.secret,
-    blackAccountData.salt
-  );
-
-  const whiteAddress = (await whiteAccount.getAccount()).getAddress();
-  const blackAddress = (await blackAccount.getAccount()).getAddress();
+  const { wallet: whiteWallet, address: whiteAddress, feePaymentMethod: whiteFeePaymentMethod } = await createTestWallet(node, whiteSecret, "white");
+  const { wallet: blackWallet, address: blackAddress, feePaymentMethod: blackFeePaymentMethod } = await createTestWallet(node, blackSecret, "black");
 
   console.log(`White address: ${whiteAddress.toString()}`);
   console.log(`Black address: ${blackAddress.toString()}\n`);
@@ -92,11 +138,19 @@ async function main() {
   console.log("═══════════════════════════════════════════════════════════\n");
 
   console.log("Deploying FogOfWarChess contract...");
-  const contract = await FogOfWarChessContract.deploy(wallet)
-    .send({ from: whiteAddress });
+  const contract = await FogOfWarChessContract.deploy(whiteWallet)
+    .send({ from: whiteAddress, fee: { paymentMethod: whiteFeePaymentMethod } });
 
   const contractAddress = contract.address.toString();
   console.log(`✅ Contract deployed at: ${contractAddress}\n`);
+
+  // Register contract with black's wallet
+  const contractInstance = await node.getContract(contract.address);
+  if (!contractInstance) {
+    throw new Error(`Contract not found at ${contract.address.toString()}`);
+  }
+  await blackWallet.registerContract(contractInstance, FogOfWarChessContractArtifact);
+  const blackContract = FogOfWarChessContract.at(contract.address, blackWallet);
 
   // Save to config file
   const configDir = path.dirname(CONFIG_PATH);
@@ -144,7 +198,7 @@ async function main() {
   console.log("Creating game on-chain...");
   const createReceipt = await contract.methods
     .create_game_private(whiteEncryptSecret, whiteMaskSecret, password)
-    .send({ from: whiteAddress });
+    .send({ from: whiteAddress, fee: { paymentMethod: whiteFeePaymentMethod } });
 
   // Parse NewGame event to get game_id
   const newGameEvents = await getDecodedPublicEvents<NewGame>(
@@ -168,7 +222,7 @@ async function main() {
   console.log("Black secrets generated (random Fr values)");
 
   // Fetch white's secret hashes
-  const secretHashesBefore = await contract.methods
+  const secretHashesBefore = await blackContract.methods
     .__get_game_secret_hashes(gameId)
     .simulate({ from: blackAddress });
 
@@ -176,10 +230,10 @@ async function main() {
   console.log("Fetched white's secret hashes from chain");
 
   // Initialize black's game state and user state
-  let blackGameState = await contract.methods
+  let blackGameState = await blackContract.methods
     .__empty_game_state()
     .simulate({ from: blackAddress });
-  let blackUserState = await contract.methods
+  let blackUserState = await blackContract.methods
     .__empty_black_state()
     .simulate({ from: blackAddress });
 
@@ -192,13 +246,13 @@ async function main() {
   blackGameState.mpc_state.user_mask_secret_hashes[0] = whiteSecretHashes[1];
 
   // Commit black's secrets
-  blackGameState = await contract.methods
+  blackGameState = await blackContract.methods
     .__commit_to_user_secrets(blackGameState, blackEncryptSecret, blackMaskSecret, 1)
     .simulate({ from: blackAddress });
 
   // Join game on-chain
   console.log("Joining game on-chain...");
-  const joinReceipt = await contract.methods
+  const joinReceipt = await blackContract.methods
     .join_game_private(
       gameId,
       blackEncryptSecret,
@@ -206,7 +260,7 @@ async function main() {
       whiteSecretHashes,
       password
     )
-    .send({ from: blackAddress });
+    .send({ from: blackAddress, fee: { paymentMethod: blackFeePaymentMethod } });
   console.log(`✅ Black joined game in block ${joinReceipt.blockNumber}\n`);
 
   // ─── White fetches updated secret hashes ───
@@ -245,7 +299,7 @@ async function main() {
   console.log("Sending move transaction...");
   const move1Receipt = await contract.methods
     .make_move_white_private(gameId, whiteGameState, whiteUserState, move1)
-    .send({ from: whiteAddress });
+    .send({ from: whiteAddress, fee: { paymentMethod: whiteFeePaymentMethod } });
 
   // Get MoveEvent
   const move1Events = await getDecodedPublicEvents<MoveEvent>(
@@ -273,10 +327,10 @@ async function main() {
 
   // ─── Black consumes white's move ───
   console.log("Black consuming white's move...");
-  blackGameState = await contract.methods
+  blackGameState = await blackContract.methods
     .__update_game_state_from_move(blackGameState, move1Events[0].state, 0)
     .simulate({ from: blackAddress });
-  blackUserState = await contract.methods
+  blackUserState = await blackContract.methods
     .__consume_opponent_move(blackGameState, blackUserState, 1)
     .simulate({ from: blackAddress });
   console.log("✅ Black's state updated\n");
@@ -286,14 +340,14 @@ async function main() {
   console.log("  Step 5: Black moves pawn e7 -> e5");
   console.log("═══════════════════════════════════════════════════════════\n");
 
-  const move2 = await contract.methods
+  const move2 = await blackContract.methods
     .__create_move(SQUARES.e7.x, SQUARES.e7.y, SQUARES.e5.x, SQUARES.e5.y)
     .simulate({ from: blackAddress });
 
   console.log("Sending move transaction...");
-  const move2Receipt = await contract.methods
+  const move2Receipt = await blackContract.methods
     .make_move_black_private(gameId, blackGameState, blackUserState, move2)
-    .send({ from: blackAddress });
+    .send({ from: blackAddress, fee: { paymentMethod: blackFeePaymentMethod } });
 
   // Get MoveEvent
   const move2Events = await getDecodedPublicEvents<MoveEvent>(
@@ -309,10 +363,10 @@ async function main() {
 
   // Update black's states
   const isFirstTwo2 = Number(blackGameState.move_count) < 2;
-  blackUserState = await contract.methods
+  blackUserState = await blackContract.methods
     .__update_user_state_from_move(isFirstTwo2, blackUserState, move2, 1)
     .simulate({ from: blackAddress });
-  blackGameState = await contract.methods
+  blackGameState = await blackContract.methods
     .__update_game_state_from_move(blackGameState, move2Events[0].state, 1)
     .simulate({ from: blackAddress });
 
@@ -348,7 +402,7 @@ async function main() {
   console.log("Sending capture transaction...");
   const move3Receipt = await contract.methods
     .make_move_white_private(gameId, whiteGameState, whiteUserState, move3)
-    .send({ from: whiteAddress });
+    .send({ from: whiteAddress, fee: { paymentMethod: whiteFeePaymentMethod } });
 
   // Get MoveEvent
   const move3Events = await getDecodedPublicEvents<MoveEvent>(

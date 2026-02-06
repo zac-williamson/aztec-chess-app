@@ -87,6 +87,7 @@ async function getDecodedEventsNoValidation<T>(
 }
 import { computeClientVision } from "../lib/chessUtils";
 import contractConfig from "../config/contract-address.json";
+import type { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
 
 interface UseChessGameReturn {
   phase: GamePhase;
@@ -126,7 +127,8 @@ interface UseChessGameReturn {
 export function useChessGame(
   wallet: any,
   address: AztecAddress | null,
-  node: any
+  node: any,
+  feePaymentMethod: SponsoredFeePaymentMethod | null
 ): UseChessGameReturn {
   const [phase, setPhase] = useState<GamePhase>("lobby");
   const [role, setRole] = useState<PlayerRole | null>(null);
@@ -355,9 +357,12 @@ export function useChessGame(
 
         // Create game on-chain
         setStatusMessage("Creating game on-chain...");
+        if (!feePaymentMethod) {
+          throw new Error("Fee payment method not initialized. Please wait for wallet to connect.");
+        }
         const receipt = await contract.methods
           .create_game_private(encryptSecret, maskSecret, password)
-          .send({ from: address });
+          .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
 
         // Parse NewGame event to get game_id
         // Using custom helper due to Aztec.js event decoder mismatch with array fields
@@ -393,7 +398,7 @@ export function useChessGame(
         console.error("Create game error:", e);
       }
     },
-    [wallet, address, node]
+    [wallet, address, node, feePaymentMethod, fetchPlayerElo, saveGameToStorage]
   );
 
   // ─── Join existing game (White player - joiner) ───
@@ -492,6 +497,9 @@ export function useChessGame(
 
         // Join game on-chain
         setStatusMessage("Joining game on-chain...");
+        if (!feePaymentMethod) {
+          throw new Error("Fee payment method not initialized. Please wait for wallet to connect.");
+        }
         const receipt = await contract.methods
           .join_game_private(
             targetGameId,
@@ -500,7 +508,7 @@ export function useChessGame(
             blackSecretHashes,
             password
           )
-          .send({ from: address });
+          .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
 
         setGameId(targetGameId);
         setRole("white");
@@ -530,7 +538,7 @@ export function useChessGame(
         console.error("Join game error:", e);
       }
     },
-    [wallet, address, node]
+    [wallet, address, node, feePaymentMethod, fetchPlayerElo, fetchGamePlayers, saveGameToStorage]
   );
 
   // ─── Resume a saved game from LocalStorage ───
@@ -838,15 +846,18 @@ export function useChessGame(
           .simulate({ from: address });
 
         // Send move transaction
+        if (!feePaymentMethod) {
+          throw new Error("Fee payment method not initialized. Please wait for wallet to connect.");
+        }
         let receipt;
         if (role === "white") {
           receipt = await contract.methods
             .make_move_white_private(gameId!, gs, us, moveData)
-            .send({ from: address });
+            .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
         } else {
           receipt = await contract.methods
             .make_move_black_private(gameId!, gs, us, moveData)
-            .send({ from: address });
+            .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
         }
 
         // Get MoveEvent from receipt
@@ -910,7 +921,7 @@ export function useChessGame(
         console.error("Move error:", e);
       }
     },
-    [wallet, address, node, role, gameId]
+    [wallet, address, node, role, gameId, feePaymentMethod]
   );
 
   // ─── Fetch open games for lobby ───

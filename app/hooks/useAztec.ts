@@ -1,30 +1,67 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { getInitialTestAccountsData } from "@aztec/accounts/testing";
-import { TestWallet } from "@aztec/test-wallet/client/bundle";
-import type { AztecAddress } from "@aztec/aztec.js/addresses";
+import { SchnorrAccountContract } from "@aztec/accounts/schnorr/lazy";
+import { deriveSigningKey } from "@aztec/stdlib/keys";
+import { Fr } from "@aztec/aztec.js/fields";
+import { AztecAddress } from "@aztec/aztec.js/addresses";
+import { EmbeddedWallet } from "../lib/embedded_wallet";
+import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
+import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
+import { SPONSORED_FPC_SALT } from "@aztec/constants";
+import { getContractInstanceFromInstantiationParams } from "@aztec/stdlib/contract";
+import devnetConfig from "../config/networks/devnet.json";
 
-const AZTEC_NODE_URL = "http://localhost:8080";
+const ACCOUNT_SECRET_KEY = "aztec-chess-account-secret";
+const ACCOUNT_DEPLOYED_KEY = "aztec-chess-account-deployed";
 
-// Get player index from URL param (?player=0 or ?player=1), default to 0
-function getPlayerIndexFromUrl(): number {
-  if (typeof window === "undefined") return 0;
-  const params = new URLSearchParams(window.location.search);
-  const playerParam = params.get("player");
-  if (playerParam === "1") return 1;
-  return 0;
+// Get the SponsoredFPC contract instance (same pattern as deploy.ts)
+async function getSponsoredFPCContract() {
+  const instance = await getContractInstanceFromInstantiationParams(SponsoredFPCContractArtifact, {
+    salt: new Fr(SPONSORED_FPC_SALT),
+  });
+  return instance;
+}
+
+// Get or create a persistent account secret in localStorage
+// Returns { secret, isNew } where isNew indicates if this is a freshly generated secret
+function getOrCreateAccountSecret(): { secret: Fr; isNew: boolean } {
+  const stored = localStorage.getItem(ACCOUNT_SECRET_KEY);
+  if (stored) {
+    try {
+      return { secret: Fr.fromString(stored), isNew: false };
+    } catch (e) {
+      console.warn("Invalid stored account secret, generating new one");
+    }
+  }
+
+  const secret = Fr.random();
+  localStorage.setItem(ACCOUNT_SECRET_KEY, secret.toString());
+  return { secret, isNew: true };
+}
+
+// Check if account has been deployed (stored in localStorage after successful deployment)
+function isAccountDeployed(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(ACCOUNT_DEPLOYED_KEY) === "true";
+}
+
+// Mark account as deployed in localStorage
+function markAccountDeployed(): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem(ACCOUNT_DEPLOYED_KEY, "true");
+  }
 }
 
 export function useAztec() {
-  const [wallet, setWallet] = useState<any>(null);
+  const [wallet, setWallet] = useState<EmbeddedWallet | null>(null);
   const [address, setAddress] = useState<AztecAddress | null>(null);
+  const [feePaymentMethod, setFeePaymentMethod] = useState<SponsoredFeePaymentMethod | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [playerIndex, setPlayerIndex] = useState<number>(getPlayerIndexFromUrl());
   const nodeRef = useRef<any>(null);
   const connectingRef = useRef(false);
 
-  const connect = useCallback(async (index: number) => {
+  const connect = useCallback(async () => {
     // Prevent multiple simultaneous connections
     if (connectingRef.current) return;
     connectingRef.current = true;
@@ -32,24 +69,66 @@ export function useAztec() {
     setIsConnecting(true);
     setError(null);
     try {
-      const node = createAztecNodeClient(AZTEC_NODE_URL);
+      console.log(`Connecting to Aztec devnet at ${devnetConfig.nodeUrl}...`);
+      const node = createAztecNodeClient(devnetConfig.nodeUrl);
       nodeRef.current = node;
 
-      const testWallet = await TestWallet.create(node);      const accounts = await getInitialTestAccountsData();
+      console.log("Creating embedded wallet with client-side PXE...");
+      const embeddedWallet = await EmbeddedWallet.create(node);
 
-      if (index >= accounts.length) {
-        throw new Error(`No test account at index ${index}. Available: ${accounts.length}`);
+      // Register the SponsoredFPC contract for fee payments
+      console.log("Registering SponsoredFPC contract...");
+      const sponsoredFPCContract = await getSponsoredFPCContract();
+      await embeddedWallet.registerContract(sponsoredFPCContract, SponsoredFPCContractArtifact);
+      const paymentMethod = new SponsoredFeePaymentMethod(sponsoredFPCContract.address);
+      console.log(`SponsoredFPC registered at ${sponsoredFPCContract.address.toString()}`);
+
+      // Get or create account secret from localStorage
+      const { secret: accountSecret, isNew: isNewSecret } = getOrCreateAccountSecret();
+      console.log(isNewSecret ? "Generated new account secret" : "Using existing account secret");
+      console.log("account secret ", accountSecret);
+      // Create account manager with persistent secret
+      const accountManager = await embeddedWallet.createAccount({
+        secret: accountSecret,
+        salt: Fr.ZERO,
+        contract: new SchnorrAccountContract(deriveSigningKey(accountSecret)),
+      });
+
+      const addr = await accountManager.address;
+
+      console.log(`Account address: ${addr.toString()}`);
+
+      // Check on-chain if account is already deployed
+      let needsDeploy = true;
+      try {
+        const { isContractInitialized } = await embeddedWallet!.getContractMetadata(addr);
+        if (isContractInitialized) {
+          console.log("Account already deployed on-chain");
+          needsDeploy = false;
+        } else {
+          console.log("Account not found on-chain, needs deployment");
+        }
+      } catch (e) {
+        console.log("Could not verify account on-chain, assuming needs deployment");
       }
 
-      const account = await testWallet.createSchnorrAccount(
-        accounts[index].secret,
-        accounts[index].salt
-      );
-      const addr = (await account.getAccount()).getAddress();
+      // Deploy account if needed
+      if (needsDeploy) {
+        console.log("Deploying account contract...");
+        const deployMethod = await accountManager.getDeployMethod();
+        await deployMethod.send({
+          from: AztecAddress.ZERO,
+          fee: { paymentMethod },
+          skipClassPublication: true,
+          skipInstancePublication: true,
+          contractAddressSalt: Fr.ZERO
+        });
+        console.log("Account deployed successfully");
+      }
 
-      setWallet(testWallet);
+      setWallet(embeddedWallet);
       setAddress(addr);
-      setPlayerIndex(index);
+      setFeePaymentMethod(paymentMethod);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to connect";
       setError(msg);
@@ -60,19 +139,18 @@ export function useAztec() {
     }
   }, []);
 
-  // Auto-connect on mount using URL parameter
+  // Auto-connect on mount
   useEffect(() => {
-    const index = getPlayerIndexFromUrl();
-    connect(index);
+    connect();
   }, [connect]);
 
   return {
     wallet,
     address,
     node: nodeRef.current,
+    feePaymentMethod,
     isConnecting,
     error,
-    playerIndex,
     connect,
   };
 }

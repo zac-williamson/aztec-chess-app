@@ -4,6 +4,10 @@
  * Usage:
  *   npx tsx scripts/deploy.ts
  *
+ * Environment variables:
+ *   AZTEC_NODE_URL - Override the Aztec node URL (default: devnet)
+ *   ACCOUNT_SECRET - Override the deployer account secret (default: Fr.ZERO)
+ *
  * This deploys:
  * 1. FogOfWarChess contract - the main chess game contract
  * 2. HatNFT contract - the NFT contract for victory hats
@@ -12,44 +16,102 @@
  * Addresses are saved to app/config/ for the web app to use.
  */
 
-import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { TestWallet } from "@aztec/test-wallet/server";
-import { getInitialTestAccountsData } from "@aztec/accounts/testing";
+import { SponsoredFPCContractArtifact } from '@aztec/noir-contracts.js/SponsoredFPC';
+import { AztecAddress } from '@aztec/stdlib/aztec-address';
+import { SchnorrAccountContract } from "@aztec/accounts/schnorr/lazy";
+import { deriveSigningKey } from "@aztec/stdlib/keys";
+import { Fr } from "@aztec/aztec.js/fields";
 import { FogOfWarChessContract } from "../app/artifacts/FogOfWarChess.js";
 import { HatNFTContract } from "../app/artifacts/HatNFT.js";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
+import { getPXEConfig, type PXEConfig } from "@aztec/pxe/config";
+import { createPXE } from "@aztec/pxe/client/lazy";
+import { AccountManager } from "@aztec/aztec.js/wallet";
+import { TestWallet } from "@aztec/test-wallet/server";
+import { SponsoredFeePaymentMethod } from '@aztec/aztec.js/fee';
+import { createAztecNodeClient, type AztecNode } from '@aztec/aztec.js/node';
+import { createLogger } from '@aztec/foundation/log';
+import { SPONSORED_FPC_SALT } from '@aztec/constants';
+import { getContractInstanceFromInstantiationParams } from '@aztec/stdlib/contract';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const AZTEC_NODE_URL = process.env.AZTEC_NODE_URL || "http://localhost:8080";
+// Default to devnet, allow override for local development
+const DEFAULT_NODE_URL = "https://next.devnet.aztec-labs.com";
+const AZTEC_NODE_URL = "https://nextnet.aztec-labs.com";
+
 const CHESS_CONFIG_PATH = path.join(__dirname, "../app/config/contract-address.json");
 const NFT_CONFIG_PATH = path.join(__dirname, "../app/config/nft-address.json");
+const DEVNET_CONFIG_PATH = path.join(__dirname, "../app/config/networks/devnet.json");
 
-async function main() {
-  console.log("=== FogOfWarChess & HatNFT Contract Deployment ===\n");
-  console.log(`Connecting to Aztec node at ${AZTEC_NODE_URL}...`);
+const PXE_STORE_DIR = path.join(import.meta.dirname, '.pxe-store');
 
-  const node = createAztecNodeClient(AZTEC_NODE_URL);
+const PROVER_ENABLED = process.env.PROVER_ENABLED === 'false' ? false : true;
 
-  console.log("Creating wallet...");
-const wallet = await TestWallet.create(node, { proverEnabled: true });
-  // Use the first test account as the deployer
-  const [deployerData] = await getInitialTestAccountsData();
-  const deployerAccount = await wallet.createSchnorrAccount(
-    deployerData.secret,
-    deployerData.salt
-  );
-  const deployerAddress = (await deployerAccount.getAccount()).getAddress();
+async function setupWallet(aztecNode: AztecNode) {
+  fs.rmSync(PXE_STORE_DIR, { recursive: true, force: true });
 
-  console.log(`Deployer address: ${deployerAddress.toString()}\n`);
+  const config = getPXEConfig();
+  //config.dataDirectory = PXE_STORE_DIR;
+  config.proverEnabled = PROVER_ENABLED;
 
-  // Deploy FogOfWarChess contract
-  console.log("Deploying FogOfWarChess contract...");
-  const chessContract = await FogOfWarChessContract.deploy(wallet)
-    .send({ from: deployerAddress });
+  return await TestWallet.create(aztecNode, config, {
+    proverOrOptions: {
+      logger: createLogger('bb:native'),
+    },
+  });
+}
+
+async function getSponsoredPFCContract() {
+  const instance = await getContractInstanceFromInstantiationParams(SponsoredFPCContractArtifact, {
+    salt: new Fr(SPONSORED_FPC_SALT),
+  });
+
+  return instance;
+}
+
+async function createAccount(wallet: TestWallet) {
+  const salt = Fr.random();
+  const secretKey = Fr.random();
+  const signingKey = deriveSigningKey(secretKey);
+  const accountManager = await wallet.createSchnorrAccount(secretKey, salt, signingKey);
+
+  const deployMethod = await accountManager.getDeployMethod();
+  const sponsoredPFCContract = await getSponsoredPFCContract();
+  const paymentMethod = new SponsoredFeePaymentMethod(sponsoredPFCContract.address);
+  const deployOpts = {
+    from: AztecAddress.ZERO,
+    fee: {
+      paymentMethod,
+    },
+    skipClassPublication: true,
+    skipInstancePublication: true,
+    wait: { timeout: 120 },
+  };
+  await deployMethod.send(deployOpts);
+
+  return {
+    address: accountManager.address,
+    salt,
+    secretKey,
+  };
+}
+
+
+
+async function deployContracts(wallet: TestWallet, deployer: AztecAddress) {
+  const sponsoredPFCContract = await getSponsoredPFCContract();
+  const paymentMethod = new SponsoredFeePaymentMethod(sponsoredPFCContract.address);
+
+  const contractAddressSalt = Fr.random();
+
+    const chessContract = await FogOfWarChessContract.deploy(wallet)
+    .send({ from: deployer, fee: { paymentMethod }});
+
 
   const chessContractAddress = chessContract.address.toString();
   console.log(`✅ FogOfWarChess deployed: ${chessContractAddress}\n`);
@@ -57,7 +119,7 @@ const wallet = await TestWallet.create(node, { proverEnabled: true });
   // Deploy HatNFT contract with chess contract as the authorized minter
   console.log("Deploying HatNFT contract...");
   const hatNFTContract = await HatNFTContract.deploy(wallet, chessContract.address)
-    .send({ from: deployerAddress });
+    .send({ from: deployer,fee: { paymentMethod } });
 
   const hatNFTContractAddress = hatNFTContract.address.toString();
   console.log(`✅ HatNFT deployed: ${hatNFTContractAddress}\n`);
@@ -66,8 +128,8 @@ const wallet = await TestWallet.create(node, { proverEnabled: true });
   console.log("Linking contracts (setting NFT address on chess contract)...");
   await chessContract.methods
     .set_hat_nft_address(hatNFTContract.address)
-    .send({ from: deployerAddress });
-      console.log("✅ Contracts linked successfully!\n");
+    .send({ from: deployer , fee: { paymentMethod }});
+  console.log("✅ Contracts linked successfully!\n");
 
   // Save to config files
   const configDir = path.dirname(CHESS_CONFIG_PATH);
@@ -90,9 +152,42 @@ const wallet = await TestWallet.create(node, { proverEnabled: true });
   fs.writeFileSync(CHESS_CONFIG_PATH, JSON.stringify(chessConfig, null, 2));
   fs.writeFileSync(NFT_CONFIG_PATH, JSON.stringify(nftConfig, null, 2));
 
-  console.log(`📝 Chess contract address saved to: ${CHESS_CONFIG_PATH}`);
-  console.log(`📝 NFT contract address saved to: ${NFT_CONFIG_PATH}`);
-  console.log("\nYou can now start the web app with 'npm run dev'");
+  // Also update the devnet.json with contract addresses
+//  if (AZTEC_NODE_URL === DEFAULT_NODE_URL) {
+    try {
+      const devnetConfig = JSON.parse(fs.readFileSync(DEVNET_CONFIG_PATH, 'utf-8'));
+      devnetConfig.contracts.fogOfWarChess = chessContractAddress;
+      devnetConfig.contracts.hatNFT = hatNFTContractAddress;
+      fs.writeFileSync(DEVNET_CONFIG_PATH, JSON.stringify(devnetConfig, null, 2));
+      console.log(`📝 Devnet config updated: ${DEVNET_CONFIG_PATH}`);
+    } catch (e) {
+      console.warn("Could not update devnet.json:", e);
+    }
+  //}
+}
+
+async function createAccountAndDeployContract() {
+  const aztecNode = createAztecNodeClient(AZTEC_NODE_URL);
+  const wallet = await setupWallet(aztecNode);
+
+  const { rollupVersion, l1ChainId: chainId } = await aztecNode.getNodeInfo();
+
+  // Register the SponsoredFPC contract (for sponsored fee payments)
+  await wallet.registerContract(await getSponsoredPFCContract(), SponsoredFPCContractArtifact);
+
+  // Create a new account
+  const { address: deployer } = await createAccount(wallet);
+
+  // Deploy the contract
+  const contractDeploymentInfo = await deployContracts(wallet, deployer);
+
+  // Clean up the PXE store
+  process.exit(0);
+}
+
+async function main() {
+
+await createAccountAndDeployContract();
 }
 
 main().catch((e) => {
