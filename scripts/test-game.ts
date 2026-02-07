@@ -20,7 +20,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { SchnorrAccountContract } from "@aztec/accounts/schnorr/lazy";
 import { deriveSigningKey } from "@aztec/stdlib/keys";
-import { getDecodedPublicEvents } from "@aztec/aztec.js/events";
+import { getPublicEvents } from "@aztec/aztec.js/events";
 import { Fr } from "@aztec/aztec.js/fields";
 import {
   FogOfWarChessContract,
@@ -201,7 +201,7 @@ async function main() {
     .send({ from: whiteAddress, fee: { paymentMethod: whiteFeePaymentMethod } });
 
   // Parse NewGame event to get game_id
-  const newGameEvents = await getDecodedPublicEvents<NewGame>(
+  const newGameEvents = await getPublicEvents<NewGame>(
     node,
     FogOfWarChessContract.events.NewGame,
     createReceipt.blockNumber!,
@@ -302,7 +302,7 @@ async function main() {
     .send({ from: whiteAddress, fee: { paymentMethod: whiteFeePaymentMethod } });
 
   // Get MoveEvent
-  const move1Events = await getDecodedPublicEvents<MoveEvent>(
+  const move1Events = await getPublicEvents<MoveEvent>(
     node,
     FogOfWarChessContract.events.MoveEvent,
     move1Receipt.blockNumber!,
@@ -350,7 +350,7 @@ async function main() {
     .send({ from: blackAddress, fee: { paymentMethod: blackFeePaymentMethod } });
 
   // Get MoveEvent
-  const move2Events = await getDecodedPublicEvents<MoveEvent>(
+  const move2Events = await getPublicEvents<MoveEvent>(
     node,
     FogOfWarChessContract.events.MoveEvent,
     move2Receipt.blockNumber!,
@@ -405,7 +405,7 @@ async function main() {
     .send({ from: whiteAddress, fee: { paymentMethod: whiteFeePaymentMethod } });
 
   // Get MoveEvent
-  const move3Events = await getDecodedPublicEvents<MoveEvent>(
+  const move3Events = await getPublicEvents<MoveEvent>(
     node,
     FogOfWarChessContract.events.MoveEvent,
     move3Receipt.blockNumber!,
