@@ -8,8 +8,8 @@ interface LobbyScreenProps {
   openGames: OpenGame[];
   isLoadingGames: boolean;
   savedGames: SavedGame[];
-  onCreateGame: (password: number) => void;
-  onJoinGame: (gameId: number, password: number) => void;
+  onCreateGame: (password: string) => void;
+  onJoinGame: (gameId: number, password: string) => void;
   onResumeGame: (savedGame: SavedGame) => void;
   onDeleteSavedGame: (gameId: number) => void;
   onFetchOpenGames: () => Promise<void>;
@@ -49,13 +49,13 @@ export function LobbyScreen({
       setJoiningGameId(game.gameId);
       setJoinModalPassword("");
     } else {
-      onJoinGame(game.gameId, 0);
+      onJoinGame(game.gameId, "");
     }
   }, [onJoinGame]);
 
   const handleConfirmJoin = useCallback(() => {
     if (joiningGameId !== null) {
-      onJoinGame(joiningGameId, Number(joinModalPassword));
+      onJoinGame(joiningGameId, joinModalPassword);
       setJoiningGameId(null);
     }
   }, [joiningGameId, joinModalPassword, onJoinGame]);
@@ -142,7 +142,7 @@ export function LobbyScreen({
             <h3>Enter Password</h3>
             <p>Game #{joiningGameId} requires a password</p>
             <input
-              type="number"
+              type="text"
               value={joinModalPassword}
               onChange={(e) => setJoinModalPassword(e.target.value)}
               placeholder="Enter password"
@@ -237,7 +237,7 @@ export function LobbyScreen({
           <label>
             Password (optional)
             <input
-              type="number"
+              type="text"
               value={createPassword}
               onChange={(e) => setCreatePassword(e.target.value)}
               disabled={isBusy}
@@ -246,7 +246,7 @@ export function LobbyScreen({
           </label>
           <button
             className="btn btn-primary"
-            onClick={() => onCreateGame(Number(createPassword) || 0)}
+            onClick={() => onCreateGame(createPassword)}
             disabled={isBusy}
           >
             Create Game
@@ -270,16 +270,16 @@ export function LobbyScreen({
           <label>
             Password
             <input
-              type="number"
+              type="text"
               value={joinPassword}
               onChange={(e) => setJoinPassword(e.target.value)}
               disabled={isBusy}
-              placeholder="Enter password (0 if none)"
+              placeholder="Leave empty if none"
             />
           </label>
           <button
             className="btn btn-primary"
-            onClick={() => onJoinGame(Number(joinGameId), Number(joinPassword) || 0)}
+            onClick={() => onJoinGame(Number(joinGameId), joinPassword)}
             disabled={isBusy || !joinGameId}
           >
             Join Game

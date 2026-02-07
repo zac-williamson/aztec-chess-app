@@ -2,7 +2,7 @@
 @import './styles/variables.css';
 
 /* ─── Web Fonts ─── */
-@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&family=Workbench&family=Martel:wght@300&display=swap');
 
 /* ─── Reset & Base ─── */
 
@@ -22,6 +22,23 @@ body {
   align-items: flex-start;
   padding-top: 40px;
   line-height: 1.5;
+  position: relative;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url('./assets/AztecImage_06.png') center / cover no-repeat;
+  z-index: -2;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 20, 0, 0.85);
+  z-index: -1;
 }
 
 #root {
@@ -85,6 +102,20 @@ code, .mono {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+.title-fog {
+  font-family: 'Workbench', monospace;
+  letter-spacing: 0.05em;
+}
+
+.title-chess {
+  font-family: 'Martel', serif;
+  font-weight: 300;
+}
+
+.title-chess-italic {
+  font-style: italic;
 }
 
 .connect-screen .subtitle {

@@ -9,7 +9,7 @@ import { EthAddress } from '@aztec/aztec.js/addresses';
 import { Fr, Point } from '@aztec/aztec.js/fields';
 import { type PublicKey, PublicKeys } from '@aztec/aztec.js/keys';
 import type { Wallet } from '@aztec/aztec.js/wallet';
-import HatNFTContractArtifactJson from './HatNFT.json' with { type: 'json' };
+import HatNFTContractArtifactJson from '../../aztec-contracts/target/hat_nft-HatNFT.json' with { type: 'json' };
 export const HatNFTContractArtifact = loadContractArtifact(HatNFTContractArtifactJson as NoirCompiledContract);
 
 

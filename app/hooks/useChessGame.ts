@@ -11,6 +11,19 @@ import { PIECE_IDS } from "../lib/types";
 
 const SAVED_GAMES_KEY = "aztec-chess-saved-games";
 
+// Hash a password string into a Field element using SHA-256
+async function hashPassword(password: string): Promise<Fr> {
+  if (!password) return Fr.ZERO;
+  const data = new TextEncoder().encode(password);
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+  // Take first 31 bytes to fit within the Fr field modulus
+  let value = 0n;
+  for (let i = 0; i < 31; i++) {
+    value = (value << 8n) | BigInt(hash[i]);
+  }
+  return new Fr(value);
+}
+
 // Helper to extract game_id from NewGame event logs
 // Workaround for Aztec.js event decoder mismatch with array fields
 async function getGameIdFromLogs(
@@ -107,10 +120,10 @@ interface UseChessGameReturn {
   savedGames: SavedGame[];
   myElo: number;
   opponentElo: number;
-  createGame: (password: number) => Promise<void>;
+  createGame: (password: string) => Promise<void>;
   joinGame: (
     gameId: number,
-    password: number
+    password: string
   ) => Promise<void>;
   resumeGame: (savedGame: SavedGame) => Promise<void>;
   deleteSavedGame: (gameId: number) => void;
@@ -299,7 +312,7 @@ export function useChessGame(
   // ─── Create game on pre-deployed contract (Black player - creator) ───
 
   const createGame = useCallback(
-    async (password: number) => {
+    async (password: string) => {
       if (!wallet || !address || !node) return;
       setError(null);
 
@@ -360,8 +373,10 @@ export function useChessGame(
         if (!feePaymentMethod) {
           throw new Error("Fee payment method not initialized. Please wait for wallet to connect.");
         }
+        const passwordField = await hashPassword(password);
+        console.log("Creating game with password:", password, "passwordField:", passwordField.toString());
         const receipt = await contract.methods
-          .create_game_private(encryptSecret, maskSecret, password)
+          .create_game_private(encryptSecret, maskSecret, passwordField)
           .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
 
         // Parse NewGame event to get game_id
@@ -378,7 +393,7 @@ export function useChessGame(
         setGameState(gs);
         setUserState(bs);
         lastBlockRef.current = receipt.blockNumber!;
-        setCreatedGamePassword(String(password || ""));
+        setCreatedGamePassword(password);
         setOpponentJoined(false);
         setPhase("playing");
         setStatusMessage(
@@ -404,7 +419,7 @@ export function useChessGame(
   // ─── Join existing game (White player - joiner) ───
 
   const joinGame = useCallback(
-    async (targetGameId: number, password: number) => {
+    async (targetGameId: number, password: string) => {
       if (!wallet || !address) return;
       setError(null);
 
@@ -500,13 +515,15 @@ export function useChessGame(
         if (!feePaymentMethod) {
           throw new Error("Fee payment method not initialized. Please wait for wallet to connect.");
         }
+        const passwordField = await hashPassword(password);
+        console.log("Joining game with password:", password, "passwordField:", passwordField.toString());
         const receipt = await contract.methods
           .join_game_private(
             targetGameId,
             encryptSecret,
             maskSecret,
             blackSecretHashes,
-            password
+            passwordField
           )
           .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
 
