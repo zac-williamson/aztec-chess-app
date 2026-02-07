@@ -204,11 +204,10 @@ async function main() {
   const newGameEvents = await getPublicEvents<NewGame>(
     node,
     FogOfWarChessContract.events.NewGame,
-    createReceipt.blockNumber!,
-    createReceipt.blockNumber! + 1
+    { fromBlock: createReceipt.blockNumber!, toBlock: (createReceipt.blockNumber! + 1) as any }
   );
 
-  const gameId = newGameEvents.length > 0 ? Number(newGameEvents[0].game_id) : 0;
+  const gameId = newGameEvents.length > 0 ? Number(newGameEvents[0].event.game_id) : 0;
   console.log(`✅ Game created! Game ID: ${gameId}\n`);
 
   // ─── Step 3: Black joins game ───
@@ -305,8 +304,7 @@ async function main() {
   const move1Events = await getPublicEvents<MoveEvent>(
     node,
     FogOfWarChessContract.events.MoveEvent,
-    move1Receipt.blockNumber!,
-    move1Receipt.blockNumber! + 1
+    { fromBlock: move1Receipt.blockNumber!, toBlock: (move1Receipt.blockNumber! + 1) as any }
   );
 
   if (move1Events.length === 0) {
@@ -319,7 +317,7 @@ async function main() {
     .__update_user_state_from_move(isFirstTwo1, whiteUserState, move1, 0)
     .simulate({ from: whiteAddress });
   whiteGameState = await contract.methods
-    .__update_game_state_from_move(whiteGameState, move1Events[0].state, 0)
+    .__update_game_state_from_move(whiteGameState, move1Events[0].event.state, 0)
     .simulate({ from: whiteAddress });
 
   console.log(`✅ White moved d2 -> d4 in block ${move1Receipt.blockNumber}`);
@@ -328,7 +326,7 @@ async function main() {
   // ─── Black consumes white's move ───
   console.log("Black consuming white's move...");
   blackGameState = await blackContract.methods
-    .__update_game_state_from_move(blackGameState, move1Events[0].state, 0)
+    .__update_game_state_from_move(blackGameState, move1Events[0].event.state, 0)
     .simulate({ from: blackAddress });
   blackUserState = await blackContract.methods
     .__consume_opponent_move(blackGameState, blackUserState, 1)
@@ -353,8 +351,7 @@ async function main() {
   const move2Events = await getPublicEvents<MoveEvent>(
     node,
     FogOfWarChessContract.events.MoveEvent,
-    move2Receipt.blockNumber!,
-    move2Receipt.blockNumber! + 1
+    { fromBlock: move2Receipt.blockNumber!, toBlock: (move2Receipt.blockNumber! + 1) as any }
   );
 
   if (move2Events.length === 0) {
@@ -367,7 +364,7 @@ async function main() {
     .__update_user_state_from_move(isFirstTwo2, blackUserState, move2, 1)
     .simulate({ from: blackAddress });
   blackGameState = await blackContract.methods
-    .__update_game_state_from_move(blackGameState, move2Events[0].state, 1)
+    .__update_game_state_from_move(blackGameState, move2Events[0].event.state, 1)
     .simulate({ from: blackAddress });
 
   console.log(`✅ Black moved e7 -> e5 in block ${move2Receipt.blockNumber}`);
@@ -376,7 +373,7 @@ async function main() {
   // ─── White consumes black's move ───
   console.log("White consuming black's move...");
   whiteGameState = await contract.methods
-    .__update_game_state_from_move(whiteGameState, move2Events[0].state, 1)
+    .__update_game_state_from_move(whiteGameState, move2Events[0].event.state, 1)
     .simulate({ from: whiteAddress });
   whiteUserState = await contract.methods
     .__consume_opponent_move(whiteGameState, whiteUserState, 0)
@@ -408,8 +405,7 @@ async function main() {
   const move3Events = await getPublicEvents<MoveEvent>(
     node,
     FogOfWarChessContract.events.MoveEvent,
-    move3Receipt.blockNumber!,
-    move3Receipt.blockNumber! + 1
+    { fromBlock: move3Receipt.blockNumber!, toBlock: (move3Receipt.blockNumber! + 1) as any }
   );
 
   if (move3Events.length === 0) {
@@ -422,7 +418,7 @@ async function main() {
     .__update_user_state_from_move(isFirstTwo3, whiteUserState, move3, 0)
     .simulate({ from: whiteAddress });
   whiteGameState = await contract.methods
-    .__update_game_state_from_move(whiteGameState, move3Events[0].state, 0)
+    .__update_game_state_from_move(whiteGameState, move3Events[0].event.state, 0)
     .simulate({ from: whiteAddress });
 
   console.log(`✅ White captured d4 x e5 in block ${move3Receipt.blockNumber}`);
