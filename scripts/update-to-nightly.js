@@ -137,10 +137,27 @@ function compileAndCopyArtifacts() {
   log(COLORS.yellow, "  Compiling with aztec compile...");
   exec("aztec compile", { cwd: contractsDir });
 
-  // Generate TypeScript artifacts from compiled JSON
+  // Copy compiled JSON artifacts into app/artifacts
   const targetDir = resolve(contractsDir, "target");
+  log(COLORS.yellow, "  Copying compiled artifacts...");
+  copyFileSync(resolve(targetDir, "fog_of_war_chess-FogOfWarChess.json"), resolve(artifactsDir, "FogOfWarChess.json"));
+  copyFileSync(resolve(targetDir, "hat_nft-HatNFT.json"), resolve(artifactsDir, "HatNFT.json"));
+
+  // Generate TypeScript artifacts from local JSON copies
   log(COLORS.yellow, "  Generating TypeScript artifacts with aztec codegen...");
-  exec(`aztec codegen ${targetDir} -o ${artifactsDir}`);
+  exec(`aztec codegen ${artifactsDir} -o ${artifactsDir}`);
+
+  // Fix codegen imports to use local JSON files (codegen may use absolute/relative paths to target/)
+  log(COLORS.yellow, "  Fixing artifact imports...");
+  for (const name of ["FogOfWarChess", "HatNFT"]) {
+    const tsPath = resolve(artifactsDir, `${name}.ts`);
+    let content = readFileSync(tsPath, "utf-8");
+    content = content.replace(
+      /from\s+['"].*?(?:FogOfWarChess|fog_of_war_chess-FogOfWarChess|HatNFT|hat_nft-HatNFT)\.json['"]/,
+      `from './${name}.json'`
+    );
+    writeFileSync(tsPath, content, "utf-8");
+  }
 
   log(COLORS.green, "✓ Contracts compiled and artifacts generated\n");
 }
