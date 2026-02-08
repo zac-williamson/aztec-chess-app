@@ -6,5 +6,21 @@
   "hat_nft-HatNFT.json": {
     "contractName": "HatNFT",
     "hash": "a9715e0d5476ccb1c2eadbd029056e963d46328d192ec8ba753ad34403989cb5"
+  },
+  "FogOfWarChess.json": {
+    "contractName": "FogOfWarChess",
+    "hash": "9f42a38f04eeb2fd05e9e213404e1cd09c46901fe35468818bc064e1b5cf70ad"
+  },
+  "FogOfWarChessold.json": {
+    "contractName": "FogOfWarChess",
+    "hash": "abf2ef22f2690ab7b014d41696b8e95b648511c3cc720e598987c8e39e7eff62"
+  },
+  "HatNFT.json": {
+    "contractName": "HatNFT",
+    "hash": "a9715e0d5476ccb1c2eadbd029056e963d46328d192ec8ba753ad34403989cb5"
+  },
+  "HatNFTold.json": {
+    "contractName": "HatNFT",
+    "hash": "ff38bb707361a419d6f979638789d90b9a9ec3753130a6a08e0f14e478c3f862"
   }
 }

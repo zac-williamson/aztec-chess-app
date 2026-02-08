@@ -147,13 +147,13 @@ function compileAndCopyArtifacts() {
   log(COLORS.yellow, "  Generating TypeScript artifacts with aztec codegen...");
   exec(`aztec codegen ${artifactsDir} -o ${artifactsDir}`);
 
-  // Fix codegen imports to use local JSON files (codegen may use absolute/relative paths to target/)
+  // Fix codegen imports to use local JSON files (codegen may pick up wrong filenames)
   log(COLORS.yellow, "  Fixing artifact imports...");
   for (const name of ["FogOfWarChess", "HatNFT"]) {
     const tsPath = resolve(artifactsDir, `${name}.ts`);
     let content = readFileSync(tsPath, "utf-8");
     content = content.replace(
-      /from\s+['"].*?(?:FogOfWarChess|fog_of_war_chess-FogOfWarChess|HatNFT|hat_nft-HatNFT)\.json['"]/,
+      /from\s+['"].*?\.json['"]/,
       `from './${name}.json'`
     );
     writeFileSync(tsPath, content, "utf-8");
