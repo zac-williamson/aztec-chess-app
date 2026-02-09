@@ -1,5 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
-import type { OpenGame, SavedGame } from "../lib/types";
+import { DidYouKnow } from "./DidYouKnow";
+import { TxProgress } from "./TxProgress";
+import type { OpenGame, SavedGame, TxStep } from "../lib/types";
 
 interface LobbyScreenProps {
   phase: string;
@@ -8,6 +10,7 @@ interface LobbyScreenProps {
   openGames: OpenGame[];
   isLoadingGames: boolean;
   savedGames: SavedGame[];
+  txStep: TxStep | null;
   onCreateGame: (password: string) => void;
   onJoinGame: (gameId: number, password: string) => void;
   onResumeGame: (savedGame: SavedGame) => void;
@@ -22,6 +25,7 @@ export function LobbyScreen({
   openGames,
   isLoadingGames,
   savedGames,
+  txStep,
   onCreateGame,
   onJoinGame,
   onResumeGame,
@@ -85,10 +89,9 @@ export function LobbyScreen({
     return (
       <div className="screen lobby-screen animate-fade-in">
         <h2>Game Lobby</h2>
-        <div className="status-bar spinner animate-slide-up">
-          {statusMessage}
-        </div>
+        {txStep && <TxProgress step={txStep} />}
         {error && <div className="error-bar animate-slide-up">{error}</div>}
+        <DidYouKnow />
       </div>
     );
   }

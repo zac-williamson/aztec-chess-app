@@ -4,6 +4,7 @@ import { useChessGame } from "../hooks/useChessGame";
 import { usePlayerHats } from "../hooks/usePlayerHats";
 import { LobbyScreen } from "./LobbyScreen";
 import { GameScreen } from "./GameScreen";
+import { DidYouKnow } from "./DidYouKnow";
 import type { Hat } from "../lib/types";
 
 export function App() {
@@ -103,6 +104,8 @@ export function App() {
             This may take a moment on first load.
           </p>
         )}
+
+        {aztec.isConnecting && <DidYouKnow />}
       </div>
     );
   }
@@ -121,6 +124,7 @@ export function App() {
         openGames={game.openGames}
         isLoadingGames={game.isLoadingGames}
         savedGames={game.savedGames}
+        txStep={game.txStep}
         onCreateGame={game.createGame}
         onJoinGame={game.joinGame}
         onResumeGame={game.resumeGame}
@@ -151,6 +155,7 @@ export function App() {
       myHat={myHat}
       opponentHat={null}
       wonHat={wonHat}
+      txStep={game.txStep}
       onMakeMove={game.makeMove}
     />
   );

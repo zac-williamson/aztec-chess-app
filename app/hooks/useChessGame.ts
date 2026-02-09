@@ -6,7 +6,7 @@ import {
 } from "../artifacts/FogOfWarChess";
 import type { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
-import type { GamePhase, PlayerRole, OpenGame, SavedGame } from "../lib/types";
+import type { GamePhase, PlayerRole, OpenGame, SavedGame, TxStep } from "../lib/types";
 import { PIECE_IDS } from "../lib/types";
 
 const SAVED_GAMES_KEY = "aztec-chess-saved-games";
@@ -101,6 +101,8 @@ async function getDecodedEventsNoValidation<T>(
 import { computeClientVision } from "../lib/chessUtils";
 import contractConfig from "../config/contract-address.json";
 import type { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
+import { NO_WAIT } from "@aztec/aztec.js/contracts";
+import { waitForTx } from "@aztec/aztec.js/node";
 
 interface UseChessGameReturn {
   phase: GamePhase;
@@ -120,6 +122,7 @@ interface UseChessGameReturn {
   savedGames: SavedGame[];
   myElo: number;
   opponentElo: number;
+  txStep: TxStep | null;
   createGame: (password: string) => Promise<void>;
   joinGame: (
     gameId: number,
@@ -160,6 +163,7 @@ export function useChessGame(
   const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
   const [myElo, setMyElo] = useState<number>(1200);
   const [opponentElo, setOpponentElo] = useState<number>(1200);
+  const [txStep, setTxStep] = useState<TxStep | null>(null);
 
   const contractRef = useRef<FogOfWarChessContract | null>(null);
   const lastBlockRef = useRef<number>(0);
@@ -325,6 +329,7 @@ export function useChessGame(
       try {
         // Connect to existing contract
         setPhase("creating");
+        setTxStep("building");
         setStatusMessage("Connecting to chess contract...");
 
         const { AztecAddress: AztecAddr } = await import("@aztec/aztec.js/addresses");
@@ -369,15 +374,23 @@ export function useChessGame(
           .simulate({ from: address });
 
         // Create game on-chain
-        setStatusMessage("Creating game on-chain...");
         if (!feePaymentMethod) {
           throw new Error("Fee payment method not initialized. Please wait for wallet to connect.");
         }
         const passwordField = await hashPassword(password);
         console.log("Creating game with password:", password, "passwordField:", passwordField.toString());
-        const receipt = await contract.methods
+
+        setTxStep("proving");
+        setStatusMessage("Generating zero-knowledge proof...");
+        const txHash = await contract.methods
           .create_game_private(encryptSecret, maskSecret, passwordField)
-          .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
+          .send({ from: address, fee: { paymentMethod: feePaymentMethod }, wait: NO_WAIT });
+
+        setTxStep("confirming");
+        setStatusMessage("Waiting for transaction confirmation...");
+        const receipt = await waitForTx(node, txHash);
+
+        setTxStep(null);
 
         // Parse NewGame event to get game_id
         // Using custom helper due to Aztec.js event decoder mismatch with array fields
@@ -410,6 +423,7 @@ export function useChessGame(
         const msg = e instanceof Error ? e.message : "Failed to create game";
         setError(msg);
         setPhase("lobby");
+        setTxStep(null);
         console.error("Create game error:", e);
       }
     },
@@ -431,6 +445,7 @@ export function useChessGame(
 
       try {
         setPhase("joining");
+        setTxStep("building");
         setStatusMessage("Connecting to contract...");
 
         // Connect to existing contract
@@ -511,13 +526,15 @@ export function useChessGame(
           .simulate({ from: address });
 
         // Join game on-chain
-        setStatusMessage("Joining game on-chain...");
         if (!feePaymentMethod) {
           throw new Error("Fee payment method not initialized. Please wait for wallet to connect.");
         }
         const passwordField = await hashPassword(password);
         console.log("Joining game with password:", password, "passwordField:", passwordField.toString());
-        const receipt = await contract.methods
+
+        setTxStep("proving");
+        setStatusMessage("Generating zero-knowledge proof...");
+        const txHash = await contract.methods
           .join_game_private(
             targetGameId,
             encryptSecret,
@@ -525,8 +542,13 @@ export function useChessGame(
             blackSecretHashes,
             passwordField
           )
-          .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
+          .send({ from: address, fee: { paymentMethod: feePaymentMethod }, wait: NO_WAIT });
 
+        setTxStep("confirming");
+        setStatusMessage("Waiting for transaction confirmation...");
+        const receipt = await waitForTx(node, txHash);
+
+        setTxStep(null);
         setGameId(targetGameId);
         setRole("white");
         setGameState(gs);
@@ -552,6 +574,7 @@ export function useChessGame(
         const msg = e instanceof Error ? e.message : "Failed to join game";
         setError(msg);
         setPhase("lobby");
+        setTxStep(null);
         console.error("Join game error:", e);
       }
     },
@@ -839,7 +862,8 @@ export function useChessGame(
 
       setError(null);
       setPhase("proving");
-      setStatusMessage("Generating proof for your move...");
+      setTxStep("building");
+      setStatusMessage("Building transaction...");
 
       try {
         const playerId = role === "white" ? 0 : 1;
@@ -866,16 +890,25 @@ export function useChessGame(
         if (!feePaymentMethod) {
           throw new Error("Fee payment method not initialized. Please wait for wallet to connect.");
         }
-        let receipt;
+
+        setTxStep("proving");
+        setStatusMessage("Generating zero-knowledge proof...");
+        let txHash;
         if (role === "white") {
-          receipt = await contract.methods
+          txHash = await contract.methods
             .make_move_white_private(gameId!, gs, us, moveData)
-            .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
+            .send({ from: address, fee: { paymentMethod: feePaymentMethod }, wait: NO_WAIT });
         } else {
-          receipt = await contract.methods
+          txHash = await contract.methods
             .make_move_black_private(gameId!, gs, us, moveData)
-            .send({ from: address, fee: { paymentMethod: feePaymentMethod } });
+            .send({ from: address, fee: { paymentMethod: feePaymentMethod }, wait: NO_WAIT });
         }
+
+        setTxStep("confirming");
+        setStatusMessage("Waiting for transaction confirmation...");
+        const receipt = await waitForTx(node, txHash);
+
+        setTxStep(null);
 
         // Get MoveEvent from receipt
         const events = await getDecodedEventsNoValidation<MoveEvent>(
@@ -935,6 +968,7 @@ export function useChessGame(
         const msg = e instanceof Error ? e.message : "Move failed";
         setError(msg);
         setPhase("playing");
+        setTxStep(null);
         console.error("Move error:", e);
       }
     },
@@ -1125,6 +1159,7 @@ export function useChessGame(
     savedGames,
     myElo,
     opponentElo,
+    txStep,
     createGame,
     joinGame,
     resumeGame,

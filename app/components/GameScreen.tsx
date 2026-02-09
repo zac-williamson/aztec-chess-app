@@ -1,13 +1,15 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Chessboard } from "./Chessboard";
 import { FlappyPawn } from "./FlappyPawn";
+import { DidYouKnow } from "./DidYouKnow";
+import { TxProgress } from "./TxProgress";
 import { VictoryHatModal } from "./VictoryHatModal";
 import {
   buildBoardFromUserState,
   isOwnPiece,
   validateMovePattern,
 } from "../lib/chessUtils";
-import type { PlayerRole, GamePhase, BoardSquare, Hat } from "../lib/types";
+import type { PlayerRole, GamePhase, BoardSquare, Hat, TxStep } from "../lib/types";
 
 // Singleton AudioContext for efficient sound playback
 let audioContext: AudioContext | null = null;
@@ -163,6 +165,7 @@ interface GameScreenProps {
   myHat?: Hat | null;
   opponentHat?: Hat | null;
   wonHat?: Hat | null;
+  txStep?: TxStep | null;
   onMakeMove: (
     fromRow: number,
     fromCol: number,
@@ -188,6 +191,7 @@ export function GameScreen({
   myHat,
   opponentHat,
   wonHat,
+  txStep,
   onMakeMove,
 }: GameScreenProps) {
   const [selectedSquare, setSelectedSquare] = useState<{
@@ -637,11 +641,10 @@ export function GameScreen({
         {phase !== "game_over" && !waitingForOpponentToJoin && (
           <div className="game-side-panel animate-slide-in-right">
             <div className="side-panel-status">
-              {phase === "proving" ? (
+              {phase === "proving" && txStep ? (
                 <>
-                  <div className="spinner-medium" />
-                  <h3>Generating Proof</h3>
-                  <p>Creating zero-knowledge proof for your move...</p>
+                  <h3>Submitting Move</h3>
+                  <TxProgress step={txStep} />
                 </>
               ) : !isMyTurn ? (
                 <>
@@ -663,6 +666,8 @@ export function GameScreen({
               </p>
               <FlappyPawn playerColor={role} disabled={isMyTurn && phase === "playing"} />
             </div>
+
+            {(phase === "proving" || !isMyTurn) && <DidYouKnow />}
           </div>
         )}
       </div>

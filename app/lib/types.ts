@@ -10,6 +10,8 @@ export type GamePhase =
 
 export type PlayerRole = "white" | "black";
 
+export type TxStep = "building" | "proving" | "confirming";
+
 // Piece type IDs from the fog_of_war_chess Noir contract (src/piece.nr)
 export const PIECE_IDS = {
   EMPTY: 0,
