@@ -83,6 +83,7 @@ export function App() {
         <h1>
           <span className="title-fog">Fog of War</span>{' '}
           <span className="title-chess">C<span className="title-chess-italic">h</span>e<span className="title-chess-italic">s</span>s</span>
+          <span className="title-version"> v0.1</span>
         </h1>
         <p className="subtitle">
           Private chess where you can only see what your pieces can see

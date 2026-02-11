@@ -118,6 +118,13 @@ code, .mono {
   font-style: italic;
 }
 
+.title-version {
+  font-size: 0.4em;
+  opacity: 0.5;
+  font-weight: 300;
+  vertical-align: super;
+}
+
 .connect-screen .subtitle {
   font-size: var(--text-lg);
   max-width: 400px;
