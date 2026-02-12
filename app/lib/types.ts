@@ -83,6 +83,23 @@ export const HAT_QUALITY_NAMES: Record<number, string> = {
   7: "Mythic",
 };
 
+// Relay / proof queue types
+export interface QueuedProof {
+  moveNumber: number;
+  gameState: any;
+  userState: any;
+  moveData: any;
+  gameEnded: boolean;
+}
+
+export type RelayMessage =
+  | { type: "JOIN"; gameId: number; role: "white" | "black" }
+  | { type: "PEER_CONNECTED" }
+  | { type: "PEER_DISCONNECTED" }
+  | { type: "MOVE"; moveNumber: number; userOutputState: any; gameEnded: boolean }
+  | { type: "MOVE_PROVEN"; moveNumber: number; blockNumber: number }
+  | { type: "MOVE_FAILED"; moveNumber: number; reason: string };
+
 // Hat type descriptions
 export const HAT_TYPE_DESCRIPTIONS: Record<number, string> = {
   0: "Earned by defeating a much stronger opponent!",

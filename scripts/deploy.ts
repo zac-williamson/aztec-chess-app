@@ -40,18 +40,25 @@ import { getContractInstanceFromInstantiationParams } from '@aztec/stdlib/contra
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Default to devnet, allow override for local development
-const DEFAULT_NODE_URL = "https://next.devnet.aztec-labs.com";
-const AZTEC_NODE_URL = "https://nextnet.aztec-labs.com";
+// Read environment config — single source of truth for network + prover settings
+const ENV_CONFIG_PATH = path.join(__dirname, "../app/config/environment.json");
+const envConfig = JSON.parse(fs.readFileSync(ENV_CONFIG_PATH, "utf-8"));
+const NETWORK_CONFIG_PATH = path.join(__dirname, `../app/config/networks/${envConfig.network === "local" ? "local" : "devnet"}.json`);
+const networkConfig = JSON.parse(fs.readFileSync(NETWORK_CONFIG_PATH, "utf-8"));
+
+const AZTEC_NODE_URL = process.env.AZTEC_NODE_URL || networkConfig.nodeUrl;
 
 const CHESS_CONFIG_PATH = path.join(__dirname, "../app/config/contract-address.json");
 const NFT_CONFIG_PATH = path.join(__dirname, "../app/config/nft-address.json");
-const DEVNET_CONFIG_PATH = path.join(__dirname, "../app/config/networks/devnet.json");
+const DEVNET_CONFIG_PATH = NETWORK_CONFIG_PATH;
 
 const PXE_STORE_DIR = path.join(import.meta.dirname, '.pxe-store');
 
-const PROVER_ENABLED = process.env.PROVER_ENABLED === 'false' ? false : true;
+const PROVER_ENABLED = process.env.PROVER_ENABLED !== undefined
+  ? process.env.PROVER_ENABLED !== 'false'
+  : envConfig.proverEnabled;
 
+console.log('prover enabled = ', PROVER_ENABLED);
 async function setupWallet(aztecNode: AztecNode) {
   fs.rmSync(PXE_STORE_DIR, { recursive: true, force: true });
 

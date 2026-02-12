@@ -6,7 +6,7 @@ import {
 } from "../artifacts/FogOfWarChess";
 import type { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
-import type { GamePhase, PlayerRole, OpenGame, SavedGame, TxStep } from "../lib/types";
+import type { GamePhase, PlayerRole, OpenGame, SavedGame, TxStep, QueuedProof } from "../lib/types";
 import { PIECE_IDS } from "../lib/types";
 
 const SAVED_GAMES_KEY = "aztec-chess-saved-games";
@@ -123,6 +123,7 @@ interface UseChessGameReturn {
   myElo: number;
   opponentElo: number;
   txStep: TxStep | null;
+  pendingProofCount: number;
   createGame: (password: string) => Promise<void>;
   joinGame: (
     gameId: number,
@@ -138,6 +139,13 @@ interface UseChessGameReturn {
   ) => Promise<void>;
   fetchOpenGames: () => Promise<void>;
   setRole: (role: PlayerRole) => void;
+  // Relay integration
+  handleRelayMove: (msg: { moveNumber: number; userOutputState: any; gameEnded: boolean }) => Promise<void>;
+  setRelaySendMove: (fn: ((moveNumber: number, userOutputState: any, gameEnded: boolean) => void) | null) => void;
+  setRelaySendMoveProven: (fn: ((moveNumber: number, blockNumber: number) => void) | null) => void;
+  setRelaySendMoveFailed: (fn: ((moveNumber: number, reason: string) => void) | null) => void;
+  setRelayConnected: (connected: boolean) => void;
+  handlePeerMoveProven: (moveNumber: number) => void;
 }
 
 export function useChessGame(
@@ -164,12 +172,28 @@ export function useChessGame(
   const [myElo, setMyElo] = useState<number>(1200);
   const [opponentElo, setOpponentElo] = useState<number>(1200);
   const [txStep, setTxStep] = useState<TxStep | null>(null);
+  const [proofQueue, setProofQueue] = useState<QueuedProof[]>([]);
+  const [pendingProofCount, setPendingProofCount] = useState(0);
 
   const contractRef = useRef<FogOfWarChessContract | null>(null);
   const lastBlockRef = useRef<number>(0);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const gameStateRef = useRef<any>(null);
   const userStateRef = useRef<any>(null);
+
+  const proofInProgressRef = useRef(false);
+  const proofQueueRef = useRef<QueuedProof[]>([]);
+  const lastConfirmedMoveRef = useRef<number>(0);
+  // Tracks the move_count that the on-chain game_hash corresponds to.
+  // A proof for move #N can only be submitted when lastProvenMoveRef >= N,
+  // because the contract asserts game_hash == initial_hash.
+  const lastProvenMoveRef = useRef<number>(0);
+  const [lastProvenMove, setLastProvenMove] = useState(0);
+  // Relay callbacks refs (set by App.tsx via setter)
+  const relaySendMoveRef = useRef<((moveNumber: number, userOutputState: any, gameEnded: boolean) => void) | null>(null);
+  const relaySendMoveProvenRef = useRef<((moveNumber: number, blockNumber: number) => void) | null>(null);
+  const relaySendMoveFailedRef = useRef<((moveNumber: number, reason: string) => void) | null>(null);
+  const relayConnectedRef = useRef(false);
 
   // Store player's own secrets (generated randomly)
   const encryptSecretRef = useRef<Fr | null>(null);
@@ -285,10 +309,17 @@ export function useChessGame(
   const deleteSavedGame = useCallback((targetGameId: number) => {
     if (!address) return;
     const playerAddr = address.toString();
+    // Remove from the full (unfiltered) list and persist
     const allGames = loadSavedGames(true);
-    const filtered = allGames.filter(g => !(g.gameId === targetGameId && g.playerAddress === playerAddr));
-    saveSavedGames(filtered);
-  }, [address, loadSavedGames, saveSavedGames]);
+    const remaining = allGames.filter(g => !(g.gameId === targetGameId && g.playerAddress === playerAddr));
+    try {
+      localStorage.setItem(SAVED_GAMES_KEY, JSON.stringify(remaining));
+    } catch (e) {
+      console.error("Failed to save games:", e);
+    }
+    // Update React state with the filtered view for the current player
+    setSavedGames(loadSavedGames());
+  }, [address, loadSavedGames]);
 
   // Load saved games on mount
   useEffect(() => {
@@ -677,16 +708,17 @@ export function useChessGame(
         us.mask_secret = maskSecretRef.current;
 
         // Fetch all MoveEvents from startBlock to now and replay them
-        // Note: MoveEvent doesn't have game_id, so this assumes no other games
-        // were played on this contract since our game started. This works for
-        // single-game scenarios or when startBlock is precise to our game.
         setStatusMessage("Replaying game history...");
         const currentBlock = await node.getBlockNumber();
-        const gameEvents = await getDecodedEventsNoValidation<MoveEvent>(
+        const allGameEvents = await getDecodedEventsNoValidation<MoveEvent>(
           node,
           FogOfWarChessContract.events.MoveEvent,
           savedGame.startBlock,
           currentBlock + 1
+        );
+        // Filter to only events for our game
+        const gameEvents = allGameEvents.filter(
+          (e) => Number(e.game_id) === savedGame.gameId
         );
 
         console.log(`resumeGame: replaying ${gameEvents.length} moves from block ${savedGame.startBlock}`);
@@ -845,7 +877,7 @@ export function useChessGame(
     }
   }, [node, address, gameId, role, opponentJoined, fetchPlayerElo, fetchGamePlayers]);
 
-  // ─── Make a move ───
+  // ─── Make a move (instant via relay, proof in background) ───
 
   const makeMove = useCallback(
     async (
@@ -861,9 +893,6 @@ export function useChessGame(
       if (!gs || !us) return;
 
       setError(null);
-      setPhase("proving");
-      setTxStep("building");
-      setStatusMessage("Building transaction...");
 
       try {
         const playerId = role === "white" ? 0 : 1;
@@ -874,106 +903,244 @@ export function useChessGame(
         const from = rowColToNoirXY(fromRow, fromCol, role);
         const to = rowColToNoirXY(toRow, toCol, role);
 
-        // Check if we're capturing the opponent's king (we can see this before the move)
+        // Check if we're capturing the opponent's king
         const targetIndex = to.x + to.y * 8;
         const targetPiece = us.game_state[targetIndex];
         const capturingOpponentKing =
           Number(targetPiece.id) === PIECE_IDS.KING &&
           Number(targetPiece.player_id) === opponentPlayerId;
 
-        // Create move data
+        // Step 1: Create move data (~instant)
         const moveData = await contract.methods
           .__create_move(from.x, from.y, to.x, to.y)
           .simulate({ from: address });
 
-        // Send move transaction
-        if (!feePaymentMethod) {
-          throw new Error("Fee payment method not initialized. Please wait for wallet to connect.");
+        // Step 2: Compute UserOutputState without proof (~100ms)
+        const userOutputState = await contract.methods
+          .__compute_move_output(gs, us, moveData, playerId)
+          .simulate({ from: address });
+
+        const gameEnded = capturingOpponentKing;
+        const currentMoveNumber = Number(gs.move_count);
+
+        // Step 3: Send move via relay (instant)
+        if (relaySendMoveRef.current) {
+          relaySendMoveRef.current(currentMoveNumber, userOutputState, gameEnded);
         }
 
-        setTxStep("proving");
-        setStatusMessage("Generating zero-knowledge proof...");
-        let txHash;
-        if (role === "white") {
-          txHash = await contract.methods
-            .make_move_white_private(gameId!, gs, us, moveData)
-            .send({ from: address, fee: { paymentMethod: feePaymentMethod }, wait: NO_WAIT });
-        } else {
-          txHash = await contract.methods
-            .make_move_black_private(gameId!, gs, us, moveData)
-            .send({ from: address, fee: { paymentMethod: feePaymentMethod }, wait: NO_WAIT });
-        }
-
-        setTxStep("confirming");
-        setStatusMessage("Waiting for transaction confirmation...");
-        const receipt = await waitForTx(node, txHash);
-
-        setTxStep(null);
-
-        // Get MoveEvent from receipt
-        const events = await getDecodedEventsNoValidation<MoveEvent>(
-          node,
-          FogOfWarChessContract.events.MoveEvent,
-          receipt.blockNumber!,
-          receipt.blockNumber! + 1
-        );
-
-        if (events.length === 0) {
-          throw new Error("No MoveEvent found in receipt");
-        }
-        const userOutputState = events[0].state;
-
-        // Update own user state after the move
-        const isFirstTwo = Number(gs.move_count) < 2;
+        // Step 4: Update own state immediately using existing helpers
+        const isFirstTwo = currentMoveNumber < 2;
         const newUserState = await contract.methods
           .__update_user_state_from_move(isFirstTwo, us, moveData, playerId)
           .simulate({ from: address });
 
-        console.log("After __update_user_state_from_move:");
-      console.log("newUserState.visible_squares:", newUserState.visible_squares);
-      console.log("newUserState.game_state:", newUserState.game_state);
-
-        // Update shared game state
         const newGameState = await contract.methods
           .__update_game_state_from_move(gs, userOutputState, playerId)
           .simulate({ from: address });
 
-        // Spread to create new references — .simulate() may mutate in place,
-        // and React skips re-render if the reference is unchanged.
+        // Spread to create new references for React
         setUserState({ ...newUserState });
         setGameState({ ...newGameState });
         setMoveCount((prev) => prev + 1);
-        lastBlockRef.current = receipt.blockNumber ?? 0;
 
-        // Check if game ended:
-        // 1. We captured opponent's king (we know this client-side from the move)
-        // 2. Contract's game_ended flag is set
-        const gameEndedFlag = newGameState.game_ended === true ||
-          (typeof newGameState.game_ended === 'bigint' && newGameState.game_ended !== 0n) ||
-          (typeof newGameState.game_ended === 'number' && newGameState.game_ended !== 0);
-        console.log("Game ended check after move:", {
-          capturingOpponentKing,
-          gameEndedFlag,
-          raw: newGameState.game_ended
-        });
+        // Step 5: Enqueue proof for background processing
+        const queueEntry: QueuedProof = {
+          moveNumber: currentMoveNumber,
+          gameState: gs,      // Snapshot state AT TIME OF MOVE for proof
+          userState: us,      // Snapshot state AT TIME OF MOVE for proof
+          moveData,
+          gameEnded,
+        };
+        setProofQueue((prev) => [...prev, queueEntry]);
+        proofQueueRef.current = [...proofQueueRef.current, queueEntry];
+        setPendingProofCount((prev) => prev + 1);
 
-        if (capturingOpponentKing || gameEndedFlag) {
+        // Step 6: Check game end and update phase
+        if (gameEnded) {
           setPhase("game_over");
           setStatusMessage("Game over! You captured the opponent's king!");
         } else {
           setPhase("playing");
-          setStatusMessage("Move submitted. Waiting for opponent...");
+          setStatusMessage("Move sent. Waiting for opponent...");
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Move failed";
         setError(msg);
         setPhase("playing");
-        setTxStep(null);
         console.error("Move error:", e);
       }
     },
     [wallet, address, node, role, gameId, feePaymentMethod]
   );
+
+  // ─── Background proof processor ───
+
+  useEffect(() => {
+    if (proofQueue.length === 0 || proofInProgressRef.current) return;
+    if (!wallet || !address || !contractRef.current || !role || !feePaymentMethod || !node || gameId === null) return;
+
+    const entry = proofQueueRef.current[0];
+    if (!entry) return;
+
+    // Gate: only submit proof for move #N when move #N-1 is confirmed on-chain.
+    // The contract asserts game_hash == initial_hash, so the previous move's
+    // proof (from either player) must have landed first.
+    if (entry.moveNumber > lastProvenMoveRef.current) {
+      console.log(`[proof-queue] Waiting: move #${entry.moveNumber} needs on-chain move #${entry.moveNumber - 1}, last proven: #${lastProvenMoveRef.current - 1}`);
+      return;
+    }
+
+    const processNextProof = async () => {
+      proofInProgressRef.current = true;
+
+      const contract = contractRef.current!;
+      console.log(`[proof-queue] Processing proof for move #${entry.moveNumber} (lastProven: ${lastProvenMoveRef.current})`);
+
+      try {
+        let txHash;
+        if (role === "white") {
+          txHash = await contract.methods
+            .make_move_white_private(gameId!, entry.gameState, entry.userState, entry.moveData)
+            .send({ from: address!, fee: { paymentMethod: feePaymentMethod }, wait: NO_WAIT });
+        } else {
+          txHash = await contract.methods
+            .make_move_black_private(gameId!, entry.gameState, entry.userState, entry.moveData)
+            .send({ from: address!, fee: { paymentMethod: feePaymentMethod }, wait: NO_WAIT });
+        }
+
+        const receipt = await waitForTx(node, txHash);
+        const blockNumber = receipt.blockNumber ?? 0;
+        lastBlockRef.current = Math.max(lastBlockRef.current, blockNumber);
+        lastConfirmedMoveRef.current = entry.moveNumber + 1;
+        // Bump proven counter — this move is now confirmed on-chain
+        lastProvenMoveRef.current = entry.moveNumber + 1;
+        setLastProvenMove(entry.moveNumber + 1);
+
+        console.log(`[proof-queue] Move #${entry.moveNumber} proven at block ${blockNumber}`);
+
+        // Notify peer that proof landed
+        if (relaySendMoveProvenRef.current) {
+          relaySendMoveProvenRef.current(entry.moveNumber, blockNumber);
+        }
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : "Proof failed";
+        console.error(`[proof-queue] Move #${entry.moveNumber} FAILED:`, e);
+
+        if (relaySendMoveFailedRef.current) {
+          relaySendMoveFailedRef.current(entry.moveNumber, reason);
+        }
+
+        setError(`Proof failed for move #${entry.moveNumber}: ${reason}`);
+      }
+
+      // Remove processed entry from queue
+      proofQueueRef.current = proofQueueRef.current.slice(1);
+      setProofQueue((prev) => prev.slice(1));
+      setPendingProofCount((prev) => Math.max(0, prev - 1));
+      proofInProgressRef.current = false;
+    };
+
+    processNextProof();
+  }, [proofQueue, lastProvenMove, wallet, address, node, role, gameId, feePaymentMethod]);
+
+  // ─── Handle incoming relay moves ───
+
+  const handleRelayMove = useCallback(
+    async (msg: { moveNumber: number; userOutputState: any; gameEnded: boolean }) => {
+      if (!contractRef.current || !address || !role) return;
+      const gs = gameStateRef.current;
+      const us = userStateRef.current;
+      if (!gs || !us) return;
+
+      const currentMoveCount = Number(gs.move_count);
+      // Ignore stale/duplicate messages
+      if (msg.moveNumber !== currentMoveCount) {
+        console.log(`[relay] Ignoring stale move #${msg.moveNumber} (current: ${currentMoveCount})`);
+        return;
+      }
+
+      console.log(`[relay] Received opponent move #${msg.moveNumber}`);
+
+      try {
+        const contract = contractRef.current;
+        const opponentPlayerId = role === "white" ? 1 : 0;
+        const myPlayerId = role === "white" ? 0 : 1;
+
+        // Update game state from opponent's move
+        const newGameState = await contract.methods
+          .__update_game_state_from_move(gs, msg.userOutputState, opponentPlayerId)
+          .simulate({ from: address });
+
+        // Consume opponent's move to update own vision
+        const newUserState = await contract.methods
+          .__consume_opponent_move(newGameState, us, myPlayerId)
+          .simulate({ from: address });
+
+        // Calculate client vision and update confirmed empty squares
+        const clientVision = computeClientVision(newUserState.game_state, myPlayerId);
+        const newConfirmedEmpty = new Set(confirmedEmptySquares);
+        for (let i = 0; i < 64; i++) {
+          if (clientVision[i] && Number(newUserState.game_state[i].id) === PIECE_IDS.EMPTY) {
+            newConfirmedEmpty.add(i);
+          }
+        }
+        setConfirmedEmptySquares(newConfirmedEmpty);
+
+        // Spread to create new references for React
+        setGameState({ ...newGameState });
+        setUserState({ ...newUserState });
+        setMoveCount((prev) => prev + 1);
+
+        // Check if game ended
+        if (msg.gameEnded) {
+          setPhase("game_over");
+          setStatusMessage("Game over! Your king was captured.");
+        } else {
+          setStatusMessage("Your turn! Select a piece to move.");
+        }
+      } catch (e) {
+        console.error("[relay] Error processing opponent move:", e);
+      }
+    },
+    [address, role, confirmedEmptySquares]
+  );
+
+  // ─── Setters for relay integration (called from App.tsx) ───
+
+  const setRelaySendMove = useCallback(
+    (fn: ((moveNumber: number, userOutputState: any, gameEnded: boolean) => void) | null) => {
+      relaySendMoveRef.current = fn;
+    },
+    []
+  );
+
+  const setRelaySendMoveProven = useCallback(
+    (fn: ((moveNumber: number, blockNumber: number) => void) | null) => {
+      relaySendMoveProvenRef.current = fn;
+    },
+    []
+  );
+
+  const setRelaySendMoveFailed = useCallback(
+    (fn: ((moveNumber: number, reason: string) => void) | null) => {
+      relaySendMoveFailedRef.current = fn;
+    },
+    []
+  );
+
+  const setRelayConnected = useCallback((connected: boolean) => {
+    relayConnectedRef.current = connected;
+  }, []);
+
+  // Called when the opponent's proof lands on-chain (received via relay MOVE_PROVEN)
+  const handlePeerMoveProven = useCallback((moveNumber: number) => {
+    const newProven = moveNumber + 1;
+    if (newProven > lastProvenMoveRef.current) {
+      console.log(`[proof-queue] Peer move #${moveNumber} proven on-chain, lastProven now ${newProven}`);
+      lastProvenMoveRef.current = newProven;
+      setLastProvenMove(newProven);
+    }
+  }, []);
 
   // ─── Fetch open games for lobby ───
 
@@ -1047,11 +1214,16 @@ export function useChessGame(
       const currentBlock = await node.getBlockNumber();
       if (currentBlock <= lastBlockRef.current) return;
 
-      const events = await getDecodedEventsNoValidation<MoveEvent>(
+      const allEvents = await getDecodedEventsNoValidation<MoveEvent>(
         node,
         FogOfWarChessContract.events.MoveEvent,
         lastBlockRef.current + 1,
         currentBlock + 1
+      );
+
+      // Filter to only events for our game
+      const events = allEvents.filter(
+        (e) => Number(e.game_id) === gameId
       );
 
       if (events.length === 0) {
@@ -1059,10 +1231,23 @@ export function useChessGame(
         return;
       }
 
+      // Skip if this move was already applied via relay.
+      // Each MoveEvent corresponds to a move_count increment. If the current
+      // gs.move_count already reflects this move, the relay already handled it.
+      const expectedMoveCount = Number(gs.move_count);
+      const myPlayerId = role === "white" ? 0 : 1;
+      const isMyTurnNow = role === "white"
+        ? expectedMoveCount % 2 === 0
+        : expectedMoveCount % 2 === 1;
+      if (isMyTurnNow) {
+        // It's already our turn — the opponent's move was applied (likely via relay)
+        lastBlockRef.current = currentBlock;
+        return;
+      }
+
       // Process the latest opponent move
       const opponentOutputState = events[events.length - 1].state;
       const opponentPlayerId = role === "white" ? 1 : 0;
-      const myPlayerId = role === "white" ? 0 : 1;
       const contract = contractRef.current;
 
       // Update game state from opponent's move
@@ -1096,6 +1281,14 @@ export function useChessGame(
       setMoveCount((prev) => prev + 1);
       lastBlockRef.current = currentBlock;
 
+      // The opponent's proof landed on-chain (that's how we found the MoveEvent).
+      // Bump lastProvenMove so our queued proof can proceed.
+      const newProven = expectedMoveCount + 1;
+      if (newProven > lastProvenMoveRef.current) {
+        lastProvenMoveRef.current = newProven;
+        setLastProvenMove(newProven);
+      }
+
       // Check if game ended - game_ended might be a BigInt/Field
       // Note: We cannot reliably check king existence due to fog of war.
       // Only rely on the contract's game_ended flag.
@@ -1124,13 +1317,15 @@ export function useChessGame(
     const shouldPollForOpponent = phase === "playing" && role === "black" && !opponentJoined;
 
     if (shouldPollForMoves || shouldPollForOpponent) {
+      // When relay is connected, poll less frequently (fallback only)
+      const interval = relayConnectedRef.current ? 15000 : 3000;
       pollingRef.current = setInterval(() => {
         if (shouldPollForOpponent) {
           pollForOpponentJoin();
         } else {
           pollForOpponentMove();
         }
-      }, 3000);
+      }, interval);
     }
 
     return () => {
@@ -1160,6 +1355,7 @@ export function useChessGame(
     myElo,
     opponentElo,
     txStep,
+    pendingProofCount,
     createGame,
     joinGame,
     resumeGame,
@@ -1167,5 +1363,12 @@ export function useChessGame(
     makeMove,
     fetchOpenGames,
     setRole,
+    // Relay integration
+    handleRelayMove,
+    setRelaySendMove,
+    setRelaySendMoveProven,
+    setRelaySendMoveFailed,
+    setRelayConnected,
+    handlePeerMoveProven,
   };
 }

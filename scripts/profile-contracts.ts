@@ -28,9 +28,15 @@ import { SPONSORED_FPC_SALT } from "@aztec/constants";
 import { getContractInstanceFromInstantiationParams } from "@aztec/stdlib/contract";
 import { AztecAddress } from "@aztec/stdlib/aztec-address";
 import type { TxProfileResult } from "@aztec/stdlib/tx";
+import * as fs from "fs";
+import * as path from "path";
+import { fileURLToPath } from "url";
 
-const DEFAULT_NODE_URL = "https://nextnet.aztec-labs.com";
-const AZTEC_NODE_URL = process.env.AZTEC_NODE_URL || DEFAULT_NODE_URL;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const envConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "../app/config/environment.json"), "utf-8"));
+const networkConfig = JSON.parse(fs.readFileSync(path.join(__dirname, `../app/config/networks/${envConfig.network === "local" ? "local" : "devnet"}.json`), "utf-8"));
+const AZTEC_NODE_URL = process.env.AZTEC_NODE_URL || networkConfig.nodeUrl;
 
 const SQUARES = {
   d2: { x: 3, y: 1 },
@@ -47,7 +53,7 @@ async function getSponsoredFPCContract() {
 
 async function createTestWallet(node: any, accountSecret: Fr, label: string) {
   const config = getPXEConfig();
-  config.proverEnabled = true;
+  config.proverEnabled = envConfig.proverEnabled;
 
   const wallet = await TestWallet.create(node, config, {
     proverOrOptions: {

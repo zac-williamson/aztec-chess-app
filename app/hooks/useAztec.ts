@@ -9,7 +9,11 @@ import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/Sponsored
 import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
 import { SPONSORED_FPC_SALT } from "@aztec/constants";
 import { getContractInstanceFromInstantiationParams } from "@aztec/stdlib/contract";
+import environmentConfig from "../config/environment.json";
 import devnetConfig from "../config/networks/devnet.json";
+import localConfig from "../config/networks/local.json";
+
+const networkConfig = environmentConfig.network === "local" ? localConfig : devnetConfig;
 
 const ACCOUNT_SECRET_KEY = "aztec-chess-account-secret";
 const ACCOUNT_DEPLOYED_KEY = "aztec-chess-account-deployed";
@@ -69,12 +73,14 @@ export function useAztec() {
     setIsConnecting(true);
     setError(null);
     try {
-      console.log(`Connecting to Aztec devnet at ${devnetConfig.nodeUrl}...`);
-      const node = createAztecNodeClient(devnetConfig.nodeUrl);
+      console.log(`Connecting to Aztec devnet at ${networkConfig.nodeUrl}...`);
+      const node = createAztecNodeClient(networkConfig.nodeUrl);
       nodeRef.current = node;
 
       console.log("Creating embedded wallet with client-side PXE...");
-      const embeddedWallet = await EmbeddedWallet.create(node);
+      const embeddedWallet = await EmbeddedWallet.create(node, {
+        proverEnabled: environmentConfig.proverEnabled,
+      });
 
       // Register the SponsoredFPC contract for fee payments
       console.log("Registering SponsoredFPC contract...");

@@ -2,14 +2,13 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Chessboard } from "./Chessboard";
 import { FlappyPawn } from "./FlappyPawn";
 import { DidYouKnow } from "./DidYouKnow";
-import { TxProgress } from "./TxProgress";
 import { VictoryHatModal } from "./VictoryHatModal";
 import {
   buildBoardFromUserState,
   isOwnPiece,
   validateMovePattern,
 } from "../lib/chessUtils";
-import type { PlayerRole, GamePhase, BoardSquare, Hat, TxStep } from "../lib/types";
+import type { PlayerRole, GamePhase, BoardSquare, Hat } from "../lib/types";
 
 // Singleton AudioContext for efficient sound playback
 let audioContext: AudioContext | null = null;
@@ -165,7 +164,9 @@ interface GameScreenProps {
   myHat?: Hat | null;
   opponentHat?: Hat | null;
   wonHat?: Hat | null;
-  txStep?: TxStep | null;
+  pendingProofCount?: number;
+  relayConnected?: boolean;
+  peerConnected?: boolean;
   onMakeMove: (
     fromRow: number,
     fromCol: number,
@@ -191,7 +192,9 @@ export function GameScreen({
   myHat,
   opponentHat,
   wonHat,
-  txStep,
+  pendingProofCount = 0,
+  relayConnected = false,
+  peerConnected = false,
   onMakeMove,
 }: GameScreenProps) {
   const [selectedSquare, setSelectedSquare] = useState<{
@@ -219,14 +222,14 @@ export function GameScreen({
   const isVictory = phase === "game_over" && statusMessage.toLowerCase().includes("you captured");
   const isDefeat = phase === "game_over" && statusMessage.toLowerCase().includes("your king");
 
-  // Clear optimistic board when phase changes from proving (move completed)
+  const moveCount = gameState ? Number(gameState.move_count) : 0;
+
+  // Clear optimistic board when move count changes (real state arrived from simulate)
   useEffect(() => {
-    if (phase !== "proving" && optimisticBoard) {
+    if (optimisticBoard) {
       setOptimisticBoard(null);
     }
-  }, [phase, optimisticBoard]);
-
-  const moveCount = gameState ? Number(gameState.move_count) : 0;
+  }, [moveCount]);
 
   // Helper to get list of our pieces on a board
   const getOurPieces = useCallback((board: BoardSquare[][] | null): string[] => {
@@ -641,12 +644,7 @@ export function GameScreen({
         {phase !== "game_over" && !waitingForOpponentToJoin && (
           <div className="game-side-panel animate-slide-in-right">
             <div className="side-panel-status">
-              {phase === "proving" && txStep ? (
-                <>
-                  <h3>Submitting Move</h3>
-                  <TxProgress step={txStep} />
-                </>
-              ) : !isMyTurn ? (
+              {!isMyTurn ? (
                 <>
                   <div className="spinner-medium" />
                   <h3>Opponent's Turn</h3>
@@ -660,6 +658,24 @@ export function GameScreen({
               )}
             </div>
 
+            {/* Proof queue status badge */}
+            {pendingProofCount > 0 && (
+              <div className="proof-status-badge animate-slide-up">
+                <div className="spinner-small" />
+                <span>{pendingProofCount} proof{pendingProofCount > 1 ? "s" : ""} pending</span>
+              </div>
+            )}
+
+            {/* Connection status indicators */}
+            <div className="connection-status">
+              <span className={`status-dot ${relayConnected ? "connected" : "disconnected"}`} />
+              <span className="status-text">
+                {relayConnected
+                  ? (peerConnected ? "Relay: connected" : "Relay: waiting for peer")
+                  : "Relay: offline (using chain polling)"}
+              </span>
+            </div>
+
             <div className="mini-game-section">
               <p className="mini-game-label">
                 {isMyTurn && phase === "playing" ? "Make your move first!" : "Play while you wait!"}
@@ -667,7 +683,7 @@ export function GameScreen({
               <FlappyPawn playerColor={role} disabled={isMyTurn && phase === "playing"} />
             </div>
 
-            {(phase === "proving" || !isMyTurn) && <DidYouKnow />}
+            {!isMyTurn && <DidYouKnow />}
           </div>
         )}
       </div>

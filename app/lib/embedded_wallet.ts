@@ -40,13 +40,13 @@ export class EmbeddedWallet extends BaseWallet {
     super(pxe, aztecNode);
   }
 
-  static async create(aztecNode: AztecNode) {
+  static async create(aztecNode: AztecNode, opts?: { proverEnabled?: boolean }) {
     const l1Contracts = await aztecNode.getL1ContractAddresses();
     const rollupAddress = l1Contracts.rollupAddress;
 
     const config = getPXEConfig();
     config.dataDirectory = `pxe-${rollupAddress}`;
-    config.proverEnabled = true;
+    config.proverEnabled = opts?.proverEnabled ?? true;
     const configWithContracts = {
       ...config,
       l1Contracts,

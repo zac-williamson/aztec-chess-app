@@ -21,7 +21,8 @@ initial_state: FieldLike[]
     
 
       export type MoveEvent = {
-        state: { ciphertext: { data: FieldLike[] }, mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[], user_updated_mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[][] }
+        game_id: (bigint | number)
+state: { ciphertext: { data: FieldLike[] }, mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[], user_updated_mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[][] }
       }
     
 
@@ -138,6 +139,9 @@ hat_nft_address: {
     /** __commit_to_user_secrets(game_state: struct, encrypt_secret: field, mask_secret: field, player_id: field) */
     __commit_to_user_secrets: ((game_state: { game_ended: boolean, move_count: FieldLike, mpc_state: { round_number: (bigint | number), user_encrypt_secret_hashes: FieldLike[], user_mask_secret_hashes: FieldLike[], previous_output_states: { ciphertext: { data: FieldLike[] }, mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[], user_updated_mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[][] }[] } }, encrypt_secret: FieldLike, mask_secret: FieldLike, player_id: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
+    /** __compute_move_output(game_state: struct, user_state: struct, move_data: struct, player_id: field) */
+    __compute_move_output: ((game_state: { game_ended: boolean, move_count: FieldLike, mpc_state: { round_number: (bigint | number), user_encrypt_secret_hashes: FieldLike[], user_mask_secret_hashes: FieldLike[], previous_output_states: { ciphertext: { data: FieldLike[] }, mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[], user_updated_mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[][] }[] } }, user_state: { encrypt_secret: FieldLike, mask_secret: FieldLike, visible_squares: FieldLike[], game_state: { id: FieldLike, player_id: FieldLike, has_moved: FieldLike }[] }, move_data: { x1: FieldLike, y1: FieldLike, x2: FieldLike, y2: FieldLike }, player_id: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+
     /** __consume_opponent_move(input_state: struct, user_state: struct, player_id: field) */
     __consume_opponent_move: ((input_state: { game_ended: boolean, move_count: FieldLike, mpc_state: { round_number: (bigint | number), user_encrypt_secret_hashes: FieldLike[], user_mask_secret_hashes: FieldLike[], previous_output_states: { ciphertext: { data: FieldLike[] }, mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[], user_updated_mask_commitments: { x: FieldLike, y: FieldLike, is_infinite: boolean }[][] }[] } }, user_state: { encrypt_secret: FieldLike, mask_secret: FieldLike, visible_squares: FieldLike[], game_state: { id: FieldLike, player_id: FieldLike, has_moved: FieldLike }[] }, player_id: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
@@ -241,6 +245,14 @@ MoveEvent: {
     "kind": "struct",
     "fields": [
         {
+            "name": "game_id",
+            "type": {
+                "kind": "integer",
+                "sign": "unsigned",
+                "width": 32
+            }
+        },
+        {
             "name": "state",
             "type": {
                 "kind": "struct",
@@ -337,8 +349,8 @@ MoveEvent: {
     ],
     "path": "FogOfWarChess::MoveEvent"
 },
-        eventSelector: EventSelector.fromString("0xe983606e"),
-        fieldNames: ["state"],
+        eventSelector: EventSelector.fromString("0xb34db283"),
+        fieldNames: ["game_id","state"],
       },
 JoinedGame: {
         abiType: {

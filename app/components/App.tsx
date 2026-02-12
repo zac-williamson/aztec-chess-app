@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAztec } from "../hooks/useAztec";
 import { useChessGame } from "../hooks/useChessGame";
 import { usePlayerHats } from "../hooks/usePlayerHats";
+import { useRelay } from "../hooks/useRelay";
 import { LobbyScreen } from "./LobbyScreen";
 import { GameScreen } from "./GameScreen";
 import { DidYouKnow } from "./DidYouKnow";
-import type { Hat } from "../lib/types";
+import type { Hat, RelayMessage } from "../lib/types";
 
 export function App() {
   const aztec = useAztec();
@@ -13,6 +14,55 @@ export function App() {
   const { bestHat: myHat, fetchHatForGame } = usePlayerHats(aztec.wallet, aztec.address, aztec.node);
   const [wonHat, setWonHat] = useState<Hat | null>(null);
   const lastCheckedGameRef = useRef<number | null>(null);
+
+  // Relay message handlers (stable refs via useCallback)
+  const handleRelayMoveMsg = useCallback(
+    (msg: Extract<RelayMessage, { type: "MOVE" }>) => {
+      game.handleRelayMove(msg);
+    },
+    [game.handleRelayMove]
+  );
+
+  const handleMoveProven = useCallback(
+    (msg: Extract<RelayMessage, { type: "MOVE_PROVEN" }>) => {
+      console.log(`[relay] Peer's move #${msg.moveNumber} proven at block ${msg.blockNumber}`);
+      game.handlePeerMoveProven(msg.moveNumber);
+    },
+    [game.handlePeerMoveProven]
+  );
+
+  const handleMoveFailed = useCallback(
+    (msg: Extract<RelayMessage, { type: "MOVE_FAILED" }>) => {
+      console.warn(`[relay] Peer's move #${msg.moveNumber} failed: ${msg.reason}`);
+    },
+    []
+  );
+
+  const relay = useRelay({
+    gameId: game.gameId,
+    role: game.role,
+    phase: game.phase,
+    onMove: handleRelayMoveMsg,
+    onMoveProven: handleMoveProven,
+    onMoveFailed: handleMoveFailed,
+  });
+
+  // Wire relay send functions into useChessGame
+  useEffect(() => {
+    game.setRelaySendMove(relay.isConnected ? relay.sendMove : null);
+    game.setRelaySendMoveProven(relay.isConnected ? relay.sendMoveProven : null);
+    game.setRelaySendMoveFailed(relay.isConnected ? relay.sendMoveFailed : null);
+    game.setRelayConnected(relay.isConnected);
+  }, [
+    relay.isConnected,
+    relay.sendMove,
+    relay.sendMoveProven,
+    relay.sendMoveFailed,
+    game.setRelaySendMove,
+    game.setRelaySendMoveProven,
+    game.setRelaySendMoveFailed,
+    game.setRelayConnected,
+  ]);
 
   // Fetch won hat when game ends with a victory
   useEffect(() => {
@@ -136,8 +186,6 @@ export function App() {
   }
 
   // Phase 3: Playing (includes waiting for opponent)
-  // Note: Opponent's hat would need to be fetched separately when they join
-  // For now, we only show our own hat on the board
   return (
     <GameScreen
       role={game.role || "white"}
@@ -156,7 +204,9 @@ export function App() {
       myHat={myHat}
       opponentHat={null}
       wonHat={wonHat}
-      txStep={game.txStep}
+      pendingProofCount={game.pendingProofCount}
+      relayConnected={relay.isConnected}
+      peerConnected={relay.isPeerConnected}
       onMakeMove={game.makeMove}
     />
   );

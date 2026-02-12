@@ -46,9 +46,10 @@ import { getContractInstanceFromInstantiationParams } from "@aztec/stdlib/contra
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Default to nextnet, allow override for local development
-const DEFAULT_NODE_URL = "https://nextnet.aztec-labs.com";
-const AZTEC_NODE_URL = process.env.AZTEC_NODE_URL || DEFAULT_NODE_URL;
+// Read environment config — single source of truth for network + prover settings
+const envConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "../app/config/environment.json"), "utf-8"));
+const networkConfig = JSON.parse(fs.readFileSync(path.join(__dirname, `../app/config/networks/${envConfig.network === "local" ? "local" : "devnet"}.json`), "utf-8"));
+const AZTEC_NODE_URL = process.env.AZTEC_NODE_URL || networkConfig.nodeUrl;
 const CONFIG_PATH = path.join(__dirname, "../app/config/contract-address.json");
 
 // Chess coordinate helpers
@@ -89,7 +90,7 @@ async function createTestWallet(
   dataDirectorySuffix: string
 ): Promise<{ wallet: TestWallet; address: any; feePaymentMethod: SponsoredFeePaymentMethod }> {
   const config = getPXEConfig();
-  config.proverEnabled = true;
+  config.proverEnabled = envConfig.proverEnabled;
 
   const wallet = await TestWallet.create(node, config, {
     proverOrOptions: {

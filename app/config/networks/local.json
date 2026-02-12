@@ -1,0 +1,11 @@
+{
+  "id": "local",
+  "nodeUrl": "http://localhost:8080",
+  "chainId": "31337",
+  "rollupVersion": "1",
+  "contracts": {
+    "fogOfWarChess": "0x084c913cabf05cfdf3b4396d2bc409f70035aad15fe471e222e6404cd4544faf",
+    "hatNFT": "0x2aa7c86e7d88cdd131c7e0e31bb7bbd06a929a49a70725086a15b5edbdaebcf5",
+    "sponsoredFPC": ""
+  }
+}
