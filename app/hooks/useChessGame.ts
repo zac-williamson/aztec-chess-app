@@ -1206,6 +1206,10 @@ export function useChessGame(
 
   const pollForOpponentMove = useCallback(async () => {
     if (!node || !contractRef.current || !role || !address) return;
+    // Don't poll while our own proof is being submitted — we'd pick up
+    // our own MoveEvent and incorrectly process it as the opponent's.
+    if (proofInProgressRef.current) return;
+
     const gs = gameStateRef.current;
     const us = userStateRef.current;
     if (!gs || !us) return;
@@ -1231,71 +1235,82 @@ export function useChessGame(
         return;
       }
 
-      // Skip if this move was already applied via relay.
-      // Each MoveEvent corresponds to a move_count increment. If the current
-      // gs.move_count already reflects this move, the relay already handled it.
-      const expectedMoveCount = Number(gs.move_count);
       const myPlayerId = role === "white" ? 0 : 1;
-      const isMyTurnNow = role === "white"
-        ? expectedMoveCount % 2 === 0
-        : expectedMoveCount % 2 === 1;
-      if (isMyTurnNow) {
-        // It's already our turn — the opponent's move was applied (likely via relay)
-        lastBlockRef.current = currentBlock;
-        return;
-      }
-
-      // Process the latest opponent move
-      const opponentOutputState = events[events.length - 1].state;
       const opponentPlayerId = role === "white" ? 1 : 0;
       const contract = contractRef.current;
 
-      // Update game state from opponent's move
-      const newGameState = await contract.methods
-        .__update_game_state_from_move(gs, opponentOutputState, opponentPlayerId)
-        .simulate({ from: address });
+      // Determine each event's on-chain move number using lastProvenMoveRef
+      // (the count of already-confirmed on-chain moves). Process events in
+      // order, just like the rejoin logic, skipping our own moves.
+      let onChainMoveCount = lastProvenMoveRef.current;
+      let latestGs = gs;
+      let latestUs = us;
+      let processedOpponentMove = false;
 
-      // Consume opponent's move to update own vision
-      const newUserState = await contract.methods
-        .__consume_opponent_move(newGameState, us, myPlayerId)
-        .simulate({ from: address });
+      for (const event of events) {
+        const playerWhoMoved = onChainMoveCount % 2; // 0 = white, 1 = black
+        onChainMoveCount++;
 
-      console.log("After __consume_opponent_move:");
-      console.log("newUserState.visible_squares:", newUserState.visible_squares);
-      console.log("newUserState.game_state:", newUserState.game_state);
+        if (playerWhoMoved === myPlayerId) {
+          // Our own proof landed — update proven counter, skip processing
+          console.log(`[poll] Skipping own move #${onChainMoveCount - 1} (on-chain)`);
+          continue;
+        }
+
+        // Opponent's move — process it
+        console.log(`[poll] Processing opponent move #${onChainMoveCount - 1} (on-chain)`);
+        latestGs = await contract.methods
+          .__update_game_state_from_move(latestGs, event.state, opponentPlayerId)
+          .simulate({ from: address });
+
+        latestUs = await contract.methods
+          .__consume_opponent_move(latestGs, latestUs, myPlayerId)
+          .simulate({ from: address });
+
+        processedOpponentMove = true;
+      }
+
+      // Update proven counter for all events we saw
+      if (onChainMoveCount > lastProvenMoveRef.current) {
+        lastProvenMoveRef.current = onChainMoveCount;
+        setLastProvenMove(onChainMoveCount);
+      }
+
+      lastBlockRef.current = currentBlock;
+
+      if (!processedOpponentMove) {
+        // All events were our own proofs — no state update needed
+        return;
+      }
+
+      // Skip if the relay already applied the opponent's move
+      // (local state is already ahead of on-chain)
+      const localMoveCount = Number(gs.move_count);
+      const isMyTurnLocally = role === "white"
+        ? localMoveCount % 2 === 0
+        : localMoveCount % 2 === 1;
+      if (isMyTurnLocally) {
+        return;
+      }
 
       // Calculate client vision and update confirmed empty squares
-      // All squares in current vision that don't have a piece are confirmed empty
-      const clientVision = computeClientVision(newUserState.game_state, myPlayerId);
+      const clientVision = computeClientVision(latestUs.game_state, myPlayerId);
       const newConfirmedEmpty = new Set(confirmedEmptySquares);
       for (let i = 0; i < 64; i++) {
-        if (clientVision[i] && Number(newUserState.game_state[i].id) === PIECE_IDS.EMPTY) {
+        if (clientVision[i] && Number(latestUs.game_state[i].id) === PIECE_IDS.EMPTY) {
           newConfirmedEmpty.add(i);
         }
       }
       setConfirmedEmptySquares(newConfirmedEmpty);
 
-      // Spread to create new references for React state change detection.
-      setGameState({ ...newGameState });
-      setUserState({ ...newUserState });
+      setGameState({ ...latestGs });
+      setUserState({ ...latestUs });
       setMoveCount((prev) => prev + 1);
-      lastBlockRef.current = currentBlock;
 
-      // The opponent's proof landed on-chain (that's how we found the MoveEvent).
-      // Bump lastProvenMove so our queued proof can proceed.
-      const newProven = expectedMoveCount + 1;
-      if (newProven > lastProvenMoveRef.current) {
-        lastProvenMoveRef.current = newProven;
-        setLastProvenMove(newProven);
-      }
-
-      // Check if game ended - game_ended might be a BigInt/Field
-      // Note: We cannot reliably check king existence due to fog of war.
-      // Only rely on the contract's game_ended flag.
-      const gameEnded = newGameState.game_ended === true ||
-          (typeof newGameState.game_ended === 'bigint' && newGameState.game_ended !== 0n) ||
-          (typeof newGameState.game_ended === 'number' && newGameState.game_ended !== 0);
-      console.log("Game ended check:", { raw: newGameState.game_ended, parsed: gameEnded });
+      // Check if game ended
+      const gameEnded = latestGs.game_ended === true ||
+          (typeof latestGs.game_ended === 'bigint' && latestGs.game_ended !== 0n) ||
+          (typeof latestGs.game_ended === 'number' && latestGs.game_ended !== 0);
 
       if (gameEnded) {
         setPhase("game_over");

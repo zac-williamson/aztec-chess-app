@@ -30,9 +30,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
-import { getPXEConfig } from "@aztec/pxe/config";
-import { TestWallet } from "@aztec/test-wallet/server";
-import { createLogger } from "@aztec/foundation/log";
+import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
 import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
 import { SPONSORED_FPC_SALT } from "@aztec/constants";
@@ -65,12 +63,10 @@ async function createTestWallet(
   node: any,
   accountSecret: Fr,
   label: string
-): Promise<{ wallet: TestWallet; address: any; feePaymentMethod: SponsoredFeePaymentMethod }> {
-  const config = getPXEConfig();
-  config.proverEnabled = envConfig.proverEnabled;
-
-  const wallet = await TestWallet.create(node, config, {
-    proverOrOptions: { logger: createLogger(`bb:${label}`) },
+): Promise<{ wallet: EmbeddedWallet; address: any; feePaymentMethod: SponsoredFeePaymentMethod }> {
+  const wallet = await EmbeddedWallet.create(node, {
+    pxeConfig: { proverEnabled: envConfig.proverEnabled },
+    ephemeral: true,
   });
 
   const sponsoredFPCContract = await getSponsoredFPCContract();

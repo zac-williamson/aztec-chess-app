@@ -32,10 +32,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
-// Import PXE and wallet utilities
-import { getPXEConfig } from "@aztec/pxe/config";
-import { TestWallet } from "@aztec/test-wallet/server";
-import { createLogger } from "@aztec/foundation/log";
+// Import wallet utilities
+import { EmbeddedWallet } from "@aztec/wallets/embedded";
 
 // Import sponsored fee payment utilities
 import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
@@ -82,20 +80,16 @@ async function getSponsoredFPCContract() {
 }
 
 /**
- * Create a test wallet with a specific account (using TestWallet like deploy.ts)
+ * Create a test wallet with a specific account
  */
 async function createTestWallet(
   node: any,
   accountSecret: Fr,
   dataDirectorySuffix: string
-): Promise<{ wallet: TestWallet; address: any; feePaymentMethod: SponsoredFeePaymentMethod }> {
-  const config = getPXEConfig();
-  config.proverEnabled = envConfig.proverEnabled;
-
-  const wallet = await TestWallet.create(node, config, {
-    proverOrOptions: {
-      logger: createLogger(`bb:${dataDirectorySuffix}`),
-    },
+): Promise<{ wallet: EmbeddedWallet; address: any; feePaymentMethod: SponsoredFeePaymentMethod }> {
+  const wallet = await EmbeddedWallet.create(node, {
+    pxeConfig: { proverEnabled: envConfig.proverEnabled },
+    ephemeral: true,
   });
 
   // Register the SponsoredFPC contract for fee payments
@@ -103,7 +97,6 @@ async function createTestWallet(
   await wallet.registerContract(sponsoredFPCContract, SponsoredFPCContractArtifact);
   const feePaymentMethod = new SponsoredFeePaymentMethod(sponsoredFPCContract.address);
 
-  // Create account using TestWallet's helper
   const signingKey = deriveSigningKey(accountSecret);
   const accountManager = await wallet.createSchnorrAccount(accountSecret, Fr.ZERO, signingKey);
 

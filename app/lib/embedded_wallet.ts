@@ -3,9 +3,10 @@ import { SchnorrAccountContract } from '@aztec/accounts/schnorr/lazy';
 
 import { getPXEConfig, type PXEConfig } from '@aztec/pxe/config';
 import { createPXE, PXE } from '@aztec/pxe/client/lazy';
+import { Oracle } from '@aztec/pxe/simulator';
 import { AztecAddress } from '@aztec/stdlib/aztec-address';
 import { getContractInstanceFromInstantiationParams } from '@aztec/stdlib/contract';
-import { mergeExecutionPayloads, type ExecutionPayload, type TxSimulationResult } from '@aztec/stdlib/tx';
+import { mergeExecutionPayloads, SimulationOverrides, type ExecutionPayload, type TxSimulationResult } from '@aztec/stdlib/tx';
 import type { DefaultAccountEntrypointOptions } from '@aztec/entrypoints/account';
 import { deriveSigningKey } from '@aztec/stdlib/keys';
 import { SignerlessAccount, type Account, type AccountContract } from '@aztec/aztec.js/account';
@@ -67,6 +68,14 @@ export class EmbeddedWallet extends BaseWallet {
       : 1;
 
     console.log(`Creating PXE with ${numThreads} threads for proving (SharedArrayBuffer: ${sharedArrayBufferAvailable})`);
+
+    // Patch missing oracle handlers — spartan.20260212 WASM bytecode calls these
+    // but the JS PXE doesn't define them yet. Without this, WASM hits proc_exit.
+    if (!(Oracle.prototype as any).utilityDebugLog) {
+      (Oracle.prototype as any).utilityDebugLog = function (..._args: any[]) {
+        return Promise.resolve([]);
+      };
+    }
 
     const pxe = await createPXE(aztecNode, configWithContracts);
     return new EmbeddedWallet(pxe, aztecNode);
@@ -163,8 +172,11 @@ export class EmbeddedWallet extends BaseWallet {
     const contractOverrides = {
       [opts.from.toString()]: { instance, artifact },
     };
-    return this.pxe.simulateTx(txRequest, true /* simulatePublic */, true, true, {
-      contracts: contractOverrides,
+    return this.pxe.simulateTx(txRequest, {
+      simulatePublic: true,
+      skipTxValidation: true,
+      skipFeeEnforcement: true,
+      overrides: new SimulationOverrides(contractOverrides),
     });
   }
 }

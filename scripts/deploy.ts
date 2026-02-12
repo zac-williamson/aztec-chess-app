@@ -27,13 +27,10 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
-import { getPXEConfig, type PXEConfig } from "@aztec/pxe/config";
-import { createPXE } from "@aztec/pxe/client/lazy";
 import { AccountManager } from "@aztec/aztec.js/wallet";
-import { TestWallet } from "@aztec/test-wallet/server";
+import { EmbeddedWallet } from "@aztec/wallets/embedded";
 import { SponsoredFeePaymentMethod } from '@aztec/aztec.js/fee';
 import { createAztecNodeClient, type AztecNode } from '@aztec/aztec.js/node';
-import { createLogger } from '@aztec/foundation/log';
 import { SPONSORED_FPC_SALT } from '@aztec/constants';
 import { getContractInstanceFromInstantiationParams } from '@aztec/stdlib/contract';
 
@@ -52,24 +49,15 @@ const CHESS_CONFIG_PATH = path.join(__dirname, "../app/config/contract-address.j
 const NFT_CONFIG_PATH = path.join(__dirname, "../app/config/nft-address.json");
 const DEVNET_CONFIG_PATH = NETWORK_CONFIG_PATH;
 
-const PXE_STORE_DIR = path.join(import.meta.dirname, '.pxe-store');
-
 const PROVER_ENABLED = process.env.PROVER_ENABLED !== undefined
   ? process.env.PROVER_ENABLED !== 'false'
   : envConfig.proverEnabled;
 
 console.log('prover enabled = ', PROVER_ENABLED);
 async function setupWallet(aztecNode: AztecNode) {
-  fs.rmSync(PXE_STORE_DIR, { recursive: true, force: true });
-
-  const config = getPXEConfig();
-  //config.dataDirectory = PXE_STORE_DIR;
-  config.proverEnabled = PROVER_ENABLED;
-
-  return await TestWallet.create(aztecNode, config, {
-    proverOrOptions: {
-      logger: createLogger('bb:native'),
-    },
+  return await EmbeddedWallet.create(aztecNode, {
+    pxeConfig: { proverEnabled: PROVER_ENABLED },
+    ephemeral: true,
   });
 }
 
@@ -81,7 +69,7 @@ async function getSponsoredPFCContract() {
   return instance;
 }
 
-async function createAccount(wallet: TestWallet) {
+async function createAccount(wallet: EmbeddedWallet) {
   const salt = Fr.random();
   const secretKey = Fr.random();
   const signingKey = deriveSigningKey(secretKey);
@@ -110,7 +98,7 @@ async function createAccount(wallet: TestWallet) {
 
 
 
-async function deployContracts(wallet: TestWallet, deployer: AztecAddress) {
+async function deployContracts(wallet: EmbeddedWallet, deployer: AztecAddress) {
   const sponsoredPFCContract = await getSponsoredPFCContract();
   const paymentMethod = new SponsoredFeePaymentMethod(sponsoredPFCContract.address);
 

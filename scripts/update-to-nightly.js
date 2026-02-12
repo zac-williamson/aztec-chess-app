@@ -37,19 +37,20 @@ function exec(command, options = {}) {
   });
 }
 
-async function fetchLatestNightly() {
-  log(COLORS.yellow, "Fetching latest nightly from npm...");
+async function fetchLatestVersion() {
+  log(COLORS.yellow, "Fetching latest version from npm...");
   try {
     const output = exec("npm view @aztec/aztec.js versions --json", { silent: true });
     const versions = JSON.parse(output);
-    const nightlies = versions.filter((v) => v.match(/^4\.0\.0-nightly\.\d+$/));
-    const latest = nightlies[nightlies.length - 1];
+    // Match both nightly and spartan versions
+    const candidates = versions.filter((v) => v.match(/^4\.0\.0-(nightly|spartan)\.\d+$/));
+    const latest = candidates[candidates.length - 1];
     if (!latest) {
-      throw new Error("No nightly versions found");
+      throw new Error("No nightly/spartan versions found");
     }
     return latest;
   } catch (error) {
-    log(COLORS.red, "Failed to fetch latest nightly version from npm");
+    log(COLORS.red, "Failed to fetch latest version from npm");
     log(COLORS.red, "Please specify a version with --version");
     process.exit(1);
   }
@@ -60,9 +61,9 @@ function updatePackageJson(version) {
   const path = resolve(ROOT, "package.json");
   let content = readFileSync(path, "utf-8");
 
-  // Update @aztec/* dependency versions
+  // Update @aztec/* dependency versions (handles both nightly and spartan tags)
   content = content.replace(
-    /("@aztec\/[^"]+": ")v4\.0\.0-nightly\.\d+"/g,
+    /("@aztec\/[^"]+": ")v4\.0\.0-(?:nightly|spartan)\.\d+"/g,
     `$1v${version}"`
   );
 
@@ -198,8 +199,8 @@ async function main() {
 
   // Fetch latest if not specified
   if (!version) {
-    version = await fetchLatestNightly();
-    log(COLORS.green, `Latest nightly version: v${version}\n`);
+    version = await fetchLatestVersion();
+    log(COLORS.green, `Latest version: v${version}\n`);
   } else {
     log(COLORS.green, `Updating to version: v${version}\n`);
   }

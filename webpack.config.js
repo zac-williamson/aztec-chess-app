@@ -89,22 +89,10 @@ export default (_, argv) => ({
     hot: true,
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "credentialless",
+      "Cross-Origin-Embedder-Policy": "require-corp",
     },
-    proxy: [
-      {
-        context: ["/relay"],
-        target: "http://localhost:8081",
-        ws: true,
-        pathRewrite: { "^/relay": "" },
-      },
-    ],
     client: {
       overlay: false,
-      webSocketURL: "ws://localhost:3000/hmr",
-    },
-    webSocketServer: {
-      options: { path: "/hmr" },
     },
     static: {
       directory: "./app",
