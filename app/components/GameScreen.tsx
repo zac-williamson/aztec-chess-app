@@ -387,7 +387,7 @@ export function GameScreen({
         return;
       }
 
-      if (phase !== "playing" || !isMyTurn || !currentBoard) return;
+      if (phase !== "playing" || !isMyTurn || !currentBoard || optimisticBoard) return;
       setMoveError(null);
 
       if (selectedSquare) {
@@ -461,7 +461,7 @@ export function GameScreen({
         }
       }
     },
-    [phase, isMyTurn, currentBoard, selectedSquare, role, onMakeMove, isViewingHistory]
+    [phase, isMyTurn, currentBoard, selectedSquare, role, onMakeMove, isViewingHistory, optimisticBoard]
   );
 
   const waitingForOpponentToJoin = role === "black" && !opponentJoined;
