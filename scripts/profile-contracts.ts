@@ -19,7 +19,7 @@ import {
   type NewGame,
 } from "../app/artifacts/FogOfWarChess.js";
 
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { TestWallet } from "@aztec/test-wallet/server";
 import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
 import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
 import { SPONSORED_FPC_SALT } from "@aztec/constants";
@@ -50,10 +50,7 @@ async function getSponsoredFPCContract() {
 }
 
 async function createTestWallet(node: any, accountSecret: Fr, label: string) {
-  const wallet = await EmbeddedWallet.create(node, {
-    pxeConfig: { proverEnabled: envConfig.proverEnabled },
-    ephemeral: true,
-  });
+  const wallet = await TestWallet.create(node, { proverEnabled: envConfig.proverEnabled });
 
   const sponsoredFPCContract = await getSponsoredFPCContract();
   await wallet.registerContract(sponsoredFPCContract, SponsoredFPCContractArtifact);

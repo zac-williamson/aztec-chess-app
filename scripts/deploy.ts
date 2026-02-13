@@ -28,7 +28,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 
 import { AccountManager } from "@aztec/aztec.js/wallet";
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { TestWallet } from "@aztec/test-wallet/server";
 import { SponsoredFeePaymentMethod } from '@aztec/aztec.js/fee';
 import { createAztecNodeClient, type AztecNode } from '@aztec/aztec.js/node';
 import { SPONSORED_FPC_SALT } from '@aztec/constants';
@@ -55,10 +55,7 @@ const PROVER_ENABLED = process.env.PROVER_ENABLED !== undefined
 
 console.log('prover enabled = ', PROVER_ENABLED);
 async function setupWallet(aztecNode: AztecNode) {
-  return await EmbeddedWallet.create(aztecNode, {
-    pxeConfig: { proverEnabled: PROVER_ENABLED },
-    ephemeral: true,
-  });
+  return await TestWallet.create(aztecNode, { proverEnabled: PROVER_ENABLED });
 }
 
 async function getSponsoredPFCContract() {
@@ -69,7 +66,7 @@ async function getSponsoredPFCContract() {
   return instance;
 }
 
-async function createAccount(wallet: EmbeddedWallet) {
+async function createAccount(wallet: TestWallet) {
   const salt = Fr.random();
   const secretKey = Fr.random();
   const signingKey = deriveSigningKey(secretKey);
@@ -98,7 +95,7 @@ async function createAccount(wallet: EmbeddedWallet) {
 
 
 
-async function deployContracts(wallet: EmbeddedWallet, deployer: AztecAddress) {
+async function deployContracts(wallet: TestWallet, deployer: AztecAddress) {
   const sponsoredPFCContract = await getSponsoredPFCContract();
   const paymentMethod = new SponsoredFeePaymentMethod(sponsoredPFCContract.address);
 

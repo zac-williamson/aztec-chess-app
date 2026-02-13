@@ -42,11 +42,11 @@ async function fetchLatestVersion() {
   try {
     const output = exec("npm view @aztec/aztec.js versions --json", { silent: true });
     const versions = JSON.parse(output);
-    // Match both nightly and spartan versions
-    const candidates = versions.filter((v) => v.match(/^4\.0\.0-(nightly|spartan)\.\d+$/));
+    // Match nightly, spartan, and devnet versions
+    const candidates = versions.filter((v) => v.match(/^4\.0\.0-(nightly|spartan|devnet)\./));
     const latest = candidates[candidates.length - 1];
     if (!latest) {
-      throw new Error("No nightly/spartan versions found");
+      throw new Error("No nightly/spartan/devnet versions found");
     }
     return latest;
   } catch (error) {
@@ -61,9 +61,9 @@ function updatePackageJson(version) {
   const path = resolve(ROOT, "package.json");
   let content = readFileSync(path, "utf-8");
 
-  // Update @aztec/* dependency versions (handles both nightly and spartan tags)
+  // Update @aztec/* dependency versions (handles nightly, spartan, and devnet tags)
   content = content.replace(
-    /("@aztec\/[^"]+": ")v4\.0\.0-(?:nightly|spartan)\.\d+"/g,
+    /("@aztec\/[^"]+": ")v4\.0\.0-(?:nightly|spartan|devnet)\.[^"]+"/g,
     `$1v${version}"`
   );
 

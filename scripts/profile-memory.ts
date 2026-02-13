@@ -11,7 +11,7 @@
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { deriveSigningKey } from "@aztec/stdlib/keys";
 import { Fr } from "@aztec/aztec.js/fields";
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { TestWallet } from "@aztec/test-wallet/server";
 import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
 import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
 import { SPONSORED_FPC_SALT } from "@aztec/constants";
@@ -109,15 +109,12 @@ async function main() {
   const node = createAztecNodeClient(AZTEC_NODE_URL);
   takeSnapshot("After createAztecNodeClient");
 
-  // Step 2: Create EmbeddedWallet (mirrors browser EmbeddedWallet.create)
+  // Step 2: Create TestWallet (mirrors browser TestWallet.create)
   console.log("\nCreating PXE...");
-  takeSnapshot("Before EmbeddedWallet.create");
+  takeSnapshot("Before TestWallet.create");
 
-  const wallet = await EmbeddedWallet.create(node, {
-    pxeConfig: { proverEnabled: envConfig.proverEnabled },
-    ephemeral: true,
-  });
-  takeSnapshot("After EmbeddedWallet.create (PXE ready)");
+  const wallet = await TestWallet.create(node, { proverEnabled: envConfig.proverEnabled });
+  takeSnapshot("After TestWallet.create (PXE ready)");
 
   // Step 3: Register SponsoredFPC
   console.log("\nRegistering SponsoredFPC...");

@@ -33,7 +33,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 
 // Import wallet utilities
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { TestWallet } from "@aztec/test-wallet/server";
 
 // Import sponsored fee payment utilities
 import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
@@ -86,11 +86,8 @@ async function createTestWallet(
   node: any,
   accountSecret: Fr,
   dataDirectorySuffix: string
-): Promise<{ wallet: EmbeddedWallet; address: any; feePaymentMethod: SponsoredFeePaymentMethod }> {
-  const wallet = await EmbeddedWallet.create(node, {
-    pxeConfig: { proverEnabled: envConfig.proverEnabled },
-    ephemeral: true,
-  });
+): Promise<{ wallet: TestWallet; address: any; feePaymentMethod: SponsoredFeePaymentMethod }> {
+  const wallet = await TestWallet.create(node, { proverEnabled: envConfig.proverEnabled });
 
   // Register the SponsoredFPC contract for fee payments
   const sponsoredFPCContract = await getSponsoredFPCContract();

@@ -1,11 +1,11 @@
 {
   "id": "devnet",
-  "nodeUrl": "https://nextnet.aztec-labs.com",
+  "nodeUrl": "https://v4-devnet-1.aztec-labs.com",
   "chainId": "11155111",
-  "rollupVersion": "785750504",
+  "rollupVersion": "138964170",
   "contracts": {
-    "fogOfWarChess": "0x147c18e8b353eefbaf1afe974d9cacb57010cef3a695902479b09880bb4eb8e9",
-    "hatNFT": "0x14fb92102a5e8659a949027c9c9c962abd3c4a9f93819ab85f775f68cee844a9",
+    "fogOfWarChess": "0x2513e2ea3daf86d01ca7110e28ecfe52ad5ce472346819f166a75ecc94295985",
+    "hatNFT": "0x06e91c3d53996f465d8bb439712fce7b35d987ed62aff9f00ec8778c80d659b2",
     "sponsoredFPC": "0x1fb6a5db22a7d2fd7f3468dc7cacf96bbcbf0458403e22178d9e70487a63da3e"
   }
 }

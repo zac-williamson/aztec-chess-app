@@ -6,7 +6,7 @@
  */
 
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { EmbeddedWallet } from "@aztec/wallets/embedded";
+import { TestWallet } from "@aztec/test-wallet/server";
 import { getInitialTestAccountsData } from "@aztec/accounts/testing";
 import { Fr } from "@aztec/aztec.js/fields";
 import { getDecodedPublicEvents } from "@aztec/aztec.js/events";
@@ -19,7 +19,7 @@ async function main() {
   const node = createAztecNodeClient("http://localhost:8080");
 
   console.log("Creating wallet...");
-  const wallet = await EmbeddedWallet.create(node, { ephemeral: true });
+  const wallet = await TestWallet.create(node);
 
   // Get test accounts
   const [whiteAccountData, blackAccountData] = await getInitialTestAccountsData();

@@ -1,10 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
-import { SchnorrAccountContract } from "@aztec/accounts/schnorr/lazy";
 import { deriveSigningKey } from "@aztec/stdlib/keys";
 import { Fr } from "@aztec/aztec.js/fields";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import { EmbeddedWallet } from "../lib/embedded_wallet";
+import { TestWallet } from "@aztec/test-wallet/client/lazy";
 import { SponsoredFPCContractArtifact } from "@aztec/noir-contracts.js/SponsoredFPC";
 import { SponsoredFeePaymentMethod } from "@aztec/aztec.js/fee";
 import { SPONSORED_FPC_SALT } from "@aztec/constants";
@@ -57,7 +56,7 @@ function markAccountDeployed(): void {
 }
 
 export function useAztec() {
-  const [wallet, setWallet] = useState<EmbeddedWallet | null>(null);
+  const [wallet, setWallet] = useState<TestWallet | null>(null);
   const [address, setAddress] = useState<AztecAddress | null>(null);
   const [feePaymentMethod, setFeePaymentMethod] = useState<SponsoredFeePaymentMethod | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -77,8 +76,8 @@ export function useAztec() {
       const node = createAztecNodeClient(networkConfig.nodeUrl);
       nodeRef.current = node;
 
-      console.log("Creating embedded wallet with client-side PXE...");
-      const embeddedWallet = await EmbeddedWallet.create(node, {
+      console.log("Creating wallet with client-side PXE...");
+      const embeddedWallet = await TestWallet.create(node, {
         proverEnabled: environmentConfig.proverEnabled,
       });
 
@@ -94,11 +93,8 @@ export function useAztec() {
       console.log(isNewSecret ? "Generated new account secret" : "Using existing account secret");
       console.log("account secret ", accountSecret);
       // Create account manager with persistent secret
-      const accountManager = await embeddedWallet.createAccount({
-        secret: accountSecret,
-        salt: Fr.ZERO,
-        contract: new SchnorrAccountContract(deriveSigningKey(accountSecret)),
-      });
+      const signingKey = deriveSigningKey(accountSecret);
+      const accountManager = await embeddedWallet.createSchnorrAccount(accountSecret, Fr.ZERO, signingKey);
 
       const addr = await accountManager.address;
 
