@@ -1,5 +1,5 @@
 {
-  "contractAddress": "0x2513e2ea3daf86d01ca7110e28ecfe52ad5ce472346819f166a75ecc94295985",
-  "deployedAt": "2026-02-13T15:37:50.868Z",
-  "network": "https://v4-devnet-1.aztec-labs.com"
+  "contractAddress": "0x09006c77c2d3671d86930ff587518ca30c79df4baa449f03c9708c4447b1ea0f",
+  "deployedAt": "2026-02-16T13:56:19.061Z",
+  "network": "http://localhost:8080"
 }

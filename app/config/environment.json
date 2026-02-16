@@ -1,4 +1,4 @@
 {
-  "network": "devnet",
-  "proverEnabled": true
+  "network": "local",
+  "proverEnabled": false
 }
