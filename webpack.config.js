@@ -35,11 +35,11 @@ export default (_, argv) => ({
     ],
   },
   plugins: [
-    new webpack.DefinePlugin({
-      'process.env': {
-        LOG_LEVEL: JSON.stringify("debug")
-      },
-    }),
+    // new webpack.DefinePlugin({
+    //   'process.env': {
+    //     LOG_LEVEL: JSON.stringify("debug")
+    //   },
+    // }),
     new HtmlWebpackPlugin({
       template: "./app/index.html",
     }),
