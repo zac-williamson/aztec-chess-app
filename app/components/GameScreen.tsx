@@ -8,7 +8,7 @@ import {
   isOwnPiece,
   validateMovePattern,
 } from "../lib/chessUtils";
-import type { PlayerRole, GamePhase, BoardSquare, Hat } from "../lib/types";
+import type { PlayerRole, GamePhase, BoardSquare, Hat, BotDifficulty } from "../lib/types";
 
 // Singleton AudioContext for efficient sound playback
 let audioContext: AudioContext | null = null;
@@ -173,6 +173,12 @@ interface GameScreenProps {
     toRow: number,
     toCol: number
   ) => Promise<void>;
+  // Bot game props
+  isBotGame?: boolean;
+  isBotThinking?: boolean;
+  botDifficulty?: BotDifficulty | null;
+  onReturnToLobby?: () => void;
+  onPlayAgain?: () => void;
 }
 
 export function GameScreen({
@@ -196,6 +202,11 @@ export function GameScreen({
   relayConnected = false,
   peerConnected = false,
   onMakeMove,
+  isBotGame = false,
+  isBotThinking = false,
+  botDifficulty = null,
+  onReturnToLobby,
+  onPlayAgain,
 }: GameScreenProps) {
   const [selectedSquare, setSelectedSquare] = useState<{
     row: number;
@@ -510,22 +521,38 @@ export function GameScreen({
           <span className="move-counter">Move #{moveCount}</span>
         </div>
 
-        <div className="elo-display">
-          <span className={`elo-badge white ${role === "white" ? "you" : ""}`}>
-            <span className="elo-icon">♔</span>
-            <span className="elo-value">{whiteElo}</span>
-          </span>
-          <span className="elo-vs">vs</span>
-          <span className={`elo-badge black ${role === "black" ? "you" : ""}`}>
-            <span className="elo-icon">♚</span>
-            <span className="elo-value">{blackElo}</span>
-          </span>
-        </div>
+        {isBotGame ? (
+          <div className="elo-display">
+            <span className={`elo-badge white you`}>
+              <span className="elo-icon">♔</span>
+              <span className="elo-value">You</span>
+            </span>
+            <span className="elo-vs">vs</span>
+            <span className={`elo-badge black`}>
+              <span className="elo-icon">♚</span>
+              <span className="elo-value">Bot ({botDifficulty || "medium"})</span>
+            </span>
+          </div>
+        ) : (
+          <>
+            <div className="elo-display">
+              <span className={`elo-badge white ${role === "white" ? "you" : ""}`}>
+                <span className="elo-icon">♔</span>
+                <span className="elo-value">{whiteElo}</span>
+              </span>
+              <span className="elo-vs">vs</span>
+              <span className={`elo-badge black ${role === "black" ? "you" : ""}`}>
+                <span className="elo-icon">♚</span>
+                <span className="elo-value">{blackElo}</span>
+              </span>
+            </div>
 
-        {gameId !== null && (
-          <span className="game-id">
-            Game <code>#{gameId}</code>
-          </span>
+            {gameId !== null && (
+              <span className="game-id">
+                Game <code>#{gameId}</code>
+              </span>
+            )}
+          </>
         )}
       </div>
 
@@ -644,7 +671,13 @@ export function GameScreen({
         {phase !== "game_over" && !waitingForOpponentToJoin && (
           <div className="game-side-panel animate-slide-in-right">
             <div className="side-panel-status">
-              {!isMyTurn ? (
+              {isBotGame && isBotThinking ? (
+                <>
+                  <div className="spinner-medium" />
+                  <h3>Bot is thinking...</h3>
+                  <p>The bot is choosing its move.</p>
+                </>
+              ) : !isMyTurn ? (
                 <>
                   <div className="spinner-medium" />
                   <h3>Opponent's Turn</h3>
@@ -658,23 +691,36 @@ export function GameScreen({
               )}
             </div>
 
-            {/* Proof queue status badge */}
-            {pendingProofCount > 0 && (
+            {/* Proof queue status badge (multiplayer only) */}
+            {!isBotGame && pendingProofCount > 0 && (
               <div className="proof-status-badge animate-slide-up">
                 <div className="spinner-small" />
                 <span>{pendingProofCount} proof{pendingProofCount > 1 ? "s" : ""} pending</span>
               </div>
             )}
 
-            {/* Connection status indicators */}
-            <div className="connection-status">
-              <span className={`status-dot ${relayConnected ? "connected" : "disconnected"}`} />
-              <span className="status-text">
-                {relayConnected
-                  ? (peerConnected ? "Relay: connected" : "Relay: waiting for peer")
-                  : "Relay: offline (using chain polling)"}
-              </span>
-            </div>
+            {/* Connection status indicators (multiplayer only) */}
+            {!isBotGame && (
+              <div className="connection-status">
+                <span className={`status-dot ${relayConnected ? "connected" : "disconnected"}`} />
+                <span className="status-text">
+                  {relayConnected
+                    ? (peerConnected ? "Relay: connected" : "Relay: waiting for peer")
+                    : "Relay: offline (using chain polling)"}
+                </span>
+              </div>
+            )}
+
+            {/* Return to lobby button (bot games) */}
+            {isBotGame && onReturnToLobby && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={onReturnToLobby}
+                style={{ marginTop: "0.5rem" }}
+              >
+                Return to Lobby
+              </button>
+            )}
 
             <div className="mini-game-section">
               <p className="mini-game-label">
@@ -699,12 +745,27 @@ export function GameScreen({
               {isVictory ? "Victory!" : isDefeat ? "Defeat" : "Game Over"}
             </h2>
             <p>{statusMessage}</p>
-            <button
-              className="btn btn-primary"
-              onClick={() => window.location.reload()}
-            >
-              Play Again
-            </button>
+            {isBotGame ? (
+              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
+                {onPlayAgain && (
+                  <button className="btn btn-primary" onClick={onPlayAgain}>
+                    Play Again
+                  </button>
+                )}
+                {onReturnToLobby && (
+                  <button className="btn btn-secondary" onClick={onReturnToLobby}>
+                    Return to Lobby
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button
+                className="btn btn-primary"
+                onClick={() => window.location.reload()}
+              >
+                Play Again
+              </button>
+            )}
           </div>
         </div>
       )}

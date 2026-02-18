@@ -4,8 +4,8 @@
   "chainId": "31337",
   "rollupVersion": "2566510564",
   "contracts": {
-    "fogOfWarChess": "0x09006c77c2d3671d86930ff587518ca30c79df4baa449f03c9708c4447b1ea0f",
-    "hatNFT": "0x18c767576844339ba4a8070d5b317dbdde18861421d4514d8edf6e076e73dad9",
+    "fogOfWarChess": "0x2c07f8518de7557cd886459594525a8f1c93480c37b9de3c464221a1acd98714",
+    "hatNFT": "0x289bddb58276ed453f967246c1b143e1fb0f98d64a4247a58667256ecdd2ef43",
     "sponsoredFPC": "0x0cc8969aefc807d1145702ef5cf7ea57801ab633fa0b5cf1527203b667812be9"
   }
 }

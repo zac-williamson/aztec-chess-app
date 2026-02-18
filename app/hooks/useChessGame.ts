@@ -189,6 +189,10 @@ export function useChessGame(
   // because the contract asserts game_hash == initial_hash.
   const lastProvenMoveRef = useRef<number>(0);
   const [lastProvenMove, setLastProvenMove] = useState(0);
+  // Tracks how many on-chain move events the poller has seen.
+  // Separate from lastProvenMoveRef (which gates proof submission) so that
+  // MOVE_PROVEN relay messages don't corrupt the poller's event counting.
+  const lastPolledChainMoveCountRef = useRef<number>(0);
   // Relay callbacks refs (set by App.tsx via setter)
   const relaySendMoveRef = useRef<((moveNumber: number, userOutputState: any, gameEnded: boolean) => void) | null>(null);
   const relaySendMoveProvenRef = useRef<((moveNumber: number, blockNumber: number) => void) | null>(null);
@@ -437,6 +441,7 @@ export function useChessGame(
         setGameState(gs);
         setUserState(bs);
         lastBlockRef.current = receipt.blockNumber!;
+        lastPolledChainMoveCountRef.current = 0;
         setCreatedGamePassword(password);
         setOpponentJoined(false);
         setPhase("playing");
@@ -585,6 +590,7 @@ export function useChessGame(
         setGameState(gs);
         setUserState(ws);
         lastBlockRef.current = receipt.blockNumber ?? 0;
+        lastPolledChainMoveCountRef.current = 0;
         setOpponentJoined(true); // White joining means both players are present
         setPhase("playing");
         setStatusMessage("Game joined! Your turn to move.");
@@ -766,6 +772,7 @@ export function useChessGame(
         setOpponentJoined(opponentJoinedStatus);
         setMoveCount(currentMoveCount);
         lastBlockRef.current = currentBlock;
+        lastPolledChainMoveCountRef.current = currentMoveCount;
 
         // Determine whose turn it is
         // White (joiner) moves on even count, Black (creator) moves on odd count
@@ -1026,6 +1033,17 @@ export function useChessGame(
         const reason = e instanceof Error ? e.message : "Proof failed";
         console.error(`[proof-queue] Move #${entry.moveNumber} FAILED:`, e);
 
+        entry.retryCount = (entry.retryCount ?? 0) + 1;
+        if (entry.retryCount < 3) {
+          // Keep entry in queue, retry after delay
+          console.log(`[proof-queue] Will retry move #${entry.moveNumber} (attempt ${entry.retryCount}/3) in 5s`);
+          proofInProgressRef.current = false;
+          setTimeout(() => setLastProvenMove(v => v), 5000); // trigger re-eval after delay
+          return; // don't remove from queue
+        }
+
+        // After 3 failures, give up on this proof
+        console.error(`[proof-queue] Move #${entry.moveNumber} failed after 3 attempts, giving up`);
         if (relaySendMoveFailedRef.current) {
           relaySendMoveFailedRef.current(entry.moveNumber, reason);
         }
@@ -1206,9 +1224,9 @@ export function useChessGame(
 
   const pollForOpponentMove = useCallback(async () => {
     if (!node || !contractRef.current || !role || !address) return;
-    // Don't poll while our own proof is being submitted — we'd pick up
-    // our own MoveEvent and incorrectly process it as the opponent's.
-    if (proofInProgressRef.current) return;
+    // Note: we no longer skip polling when proofInProgress — the poller uses
+    // its own lastPolledChainMoveCountRef to correctly identify and skip our
+    // own MoveEvents via move_count parity.
 
     const gs = gameStateRef.current;
     const us = userStateRef.current;
@@ -1239,10 +1257,10 @@ export function useChessGame(
       const opponentPlayerId = role === "white" ? 1 : 0;
       const contract = contractRef.current;
 
-      // Determine each event's on-chain move number using lastProvenMoveRef
-      // (the count of already-confirmed on-chain moves). Process events in
-      // order, just like the rejoin logic, skipping our own moves.
-      let onChainMoveCount = lastProvenMoveRef.current;
+      // Determine each event's on-chain move number using the poller's own
+      // counter (not lastProvenMoveRef, which can be bumped by MOVE_PROVEN
+      // relay messages independently of what the poller has actually seen).
+      let onChainMoveCount = lastPolledChainMoveCountRef.current;
       let latestGs = gs;
       let latestUs = us;
       let processedOpponentMove = false;
@@ -1270,7 +1288,10 @@ export function useChessGame(
         processedOpponentMove = true;
       }
 
-      // Update proven counter for all events we saw
+      // Update the poller's own counter for events it has seen
+      lastPolledChainMoveCountRef.current = onChainMoveCount;
+      // Also advance lastProvenMoveRef if the poller saw more events than
+      // the proof queue / MOVE_PROVEN relay messages have reported so far
       if (onChainMoveCount > lastProvenMoveRef.current) {
         lastProvenMoveRef.current = onChainMoveCount;
         setLastProvenMove(onChainMoveCount);
@@ -1284,12 +1305,11 @@ export function useChessGame(
       }
 
       // Skip if the relay already applied the opponent's move
-      // (local state is already ahead of on-chain)
-      const localMoveCount = Number(gs.move_count);
-      const isMyTurnLocally = role === "white"
-        ? localMoveCount % 2 === 0
-        : localMoveCount % 2 === 1;
-      if (isMyTurnLocally) {
+      // (local state is already ahead of on-chain).
+      // Use a fresh read from gameStateRef instead of the stale `gs` captured
+      // at the top of this function (which may be outdated due to React batching).
+      const freshLocalMoveCount = Number(gameStateRef.current?.move_count ?? 0);
+      if (freshLocalMoveCount >= onChainMoveCount) {
         return;
       }
 

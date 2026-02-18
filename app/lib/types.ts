@@ -1,3 +1,7 @@
+export type BotDifficulty = "easy" | "medium" | "hard";
+
+export type GameMode = "none" | "multiplayer" | "bot";
+
 export type GamePhase =
   | "connecting"
   | "lobby"
@@ -90,6 +94,7 @@ export interface QueuedProof {
   userState: any;
   moveData: any;
   gameEnded: boolean;
+  retryCount?: number;
 }
 
 export type RelayMessage =
