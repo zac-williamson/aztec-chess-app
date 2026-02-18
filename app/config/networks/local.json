@@ -2,10 +2,10 @@
   "id": "local",
   "nodeUrl": "http://localhost:8080",
   "chainId": "31337",
-  "rollupVersion": "1",
+  "rollupVersion": "2566510564",
   "contracts": {
-    "fogOfWarChess": "0x084c913cabf05cfdf3b4396d2bc409f70035aad15fe471e222e6404cd4544faf",
-    "hatNFT": "0x2aa7c86e7d88cdd131c7e0e31bb7bbd06a929a49a70725086a15b5edbdaebcf5",
-    "sponsoredFPC": ""
+    "fogOfWarChess": "0x2c07f8518de7557cd886459594525a8f1c93480c37b9de3c464221a1acd98714",
+    "hatNFT": "0x289bddb58276ed453f967246c1b143e1fb0f98d64a4247a58667256ecdd2ef43",
+    "sponsoredFPC": "0x0cc8969aefc807d1145702ef5cf7ea57801ab633fa0b5cf1527203b667812be9"
   }
 }

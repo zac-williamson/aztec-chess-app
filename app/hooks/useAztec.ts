@@ -62,6 +62,7 @@ export function useAztec() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const nodeRef = useRef<any>(null);
+  const walletRef = useRef<TestWallet | null>(null);
   const connectingRef = useRef(false);
 
   const connect = useCallback(async () => {
@@ -79,7 +80,9 @@ export function useAztec() {
       console.log("Creating wallet with client-side PXE...");
       const embeddedWallet = await TestWallet.create(node, {
         proverEnabled: environmentConfig.proverEnabled,
+        dataDirectory: 'aztec-chess',
       });
+      walletRef.current = embeddedWallet;
 
       // Register the SponsoredFPC contract for fee payments
       console.log("Registering SponsoredFPC contract...");
@@ -96,7 +99,7 @@ export function useAztec() {
       const signingKey = deriveSigningKey(accountSecret);
       const accountManager = await embeddedWallet.createSchnorrAccount(accountSecret, Fr.ZERO, signingKey);
 
-      const addr = await accountManager.address;
+      const addr = accountManager.address;
 
       console.log(`Account address: ${addr.toString()}`);
 
@@ -123,9 +126,10 @@ export function useAztec() {
           fee: { paymentMethod },
           skipClassPublication: true,
           skipInstancePublication: true,
-          contractAddressSalt: Fr.ZERO
+          wait: { timeout: 300 },
         });
         console.log("Account deployed successfully");
+        markAccountDeployed();
       }
 
       setWallet(embeddedWallet);
@@ -141,9 +145,13 @@ export function useAztec() {
     }
   }, []);
 
-  // Auto-connect on mount
+  // Auto-connect on mount, clean up PXE on unmount
   useEffect(() => {
     connect();
+    return () => {
+      walletRef.current?.stop();
+      walletRef.current = null;
+    };
   }, [connect]);
 
   return {

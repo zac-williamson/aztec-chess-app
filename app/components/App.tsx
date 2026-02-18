@@ -1,19 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAztec } from "../hooks/useAztec";
 import { useChessGame } from "../hooks/useChessGame";
+import { useBotGame } from "../hooks/useBotGame";
 import { usePlayerHats } from "../hooks/usePlayerHats";
 import { useRelay } from "../hooks/useRelay";
 import { LobbyScreen } from "./LobbyScreen";
 import { GameScreen } from "./GameScreen";
 import { DidYouKnow } from "./DidYouKnow";
-import type { Hat, RelayMessage } from "../lib/types";
+import type { Hat, RelayMessage, GameMode, BotDifficulty } from "../lib/types";
 
 export function App() {
   const aztec = useAztec();
   const game = useChessGame(aztec.wallet, aztec.address, aztec.node, aztec.feePaymentMethod);
+  const bot = useBotGame(aztec.wallet, aztec.address, aztec.node);
   const { bestHat: myHat, fetchHatForGame } = usePlayerHats(aztec.wallet, aztec.address, aztec.node);
   const [wonHat, setWonHat] = useState<Hat | null>(null);
   const lastCheckedGameRef = useRef<number | null>(null);
+  const [gameMode, setGameMode] = useState<GameMode>("none");
 
   // Relay message handlers (stable refs via useCallback)
   const handleRelayMoveMsg = useCallback(
@@ -121,6 +124,23 @@ export function App() {
     }
   }, [game.phase]);
 
+  // Track game mode based on active game phases
+  useEffect(() => {
+    if (gameMode === "bot" && bot.phase === "lobby") {
+      setGameMode("none");
+    }
+  }, [gameMode, bot.phase]);
+
+  const handleStartBotGame = useCallback(async (difficulty: BotDifficulty) => {
+    setGameMode("bot");
+    await bot.startBotGame(difficulty);
+  }, [bot.startBotGame]);
+
+  const handleBotReturnToLobby = useCallback(() => {
+    bot.returnToLobby();
+    setGameMode("none");
+  }, [bot.returnToLobby]);
+
   // Phase 1: Connecting to Aztec (auto-connects on mount)
   if (!aztec.wallet || !aztec.address) {
     return (
@@ -133,7 +153,7 @@ export function App() {
         <h1>
           <span className="title-fog">Fog of War</span>{' '}
           <span className="title-chess">C<span className="title-chess-italic">h</span>e<span className="title-chess-italic">s</span>s</span>
-          <span className="title-version"> v0.1</span>
+          <span className="title-version"> v0.2</span>
         </h1>
         <p className="subtitle">
           Private chess where you can only see what your pieces can see
@@ -161,7 +181,37 @@ export function App() {
     );
   }
 
-  // Phase 2: Lobby (create/join game)
+  // Phase 2: Bot game in progress
+  if (gameMode === "bot" && bot.phase !== "lobby") {
+    return (
+      <GameScreen
+        role={bot.role}
+        phase={bot.phase}
+        gameId={null}
+        userState={bot.userState}
+        gameState={bot.gameState}
+        confirmedEmptySquares={bot.confirmedEmptySquares}
+        isMyTurn={bot.isMyTurn}
+        statusMessage={bot.statusMessage}
+        error={bot.error}
+        opponentJoined={true}
+        createdGamePassword=""
+        myElo={0}
+        opponentElo={0}
+        pendingProofCount={0}
+        relayConnected={false}
+        peerConnected={false}
+        onMakeMove={bot.makeMove}
+        isBotGame={true}
+        isBotThinking={bot.isBotThinking}
+        botDifficulty={bot.botDifficulty}
+        onReturnToLobby={handleBotReturnToLobby}
+        onPlayAgain={() => bot.startBotGame(bot.botDifficulty || "medium")}
+      />
+    );
+  }
+
+  // Phase 3: Lobby (create/join game or play vs bot)
   if (
     game.phase === "lobby" ||
     game.phase === "creating" ||
@@ -181,11 +231,12 @@ export function App() {
         onResumeGame={game.resumeGame}
         onDeleteSavedGame={game.deleteSavedGame}
         onFetchOpenGames={game.fetchOpenGames}
+        onStartBotGame={handleStartBotGame}
       />
     );
   }
 
-  // Phase 3: Playing (includes waiting for opponent)
+  // Phase 4: Multiplayer game in progress
   return (
     <GameScreen
       role={game.role || "white"}

@@ -35,6 +35,39 @@ interface ChessboardCanvasProps {
 const geometryCache = new Map<string, THREE.BufferGeometry>();
 const materialCache = new Map<string, THREE.Material>();
 
+// Outline materials (inverted-hull technique: BackSide, slightly scaled up)
+const outlineMaterials = {
+  black: new THREE.MeshBasicMaterial({
+    color: 0xff2df4, // orchid glow for black pieces
+    side: THREE.BackSide,
+  }),
+  white: new THREE.MeshBasicMaterial({
+    color: 0x1a1400, // dark ink outline for white pieces
+    side: THREE.BackSide,
+  }),
+};
+
+// Add outline meshes to a piece group using inverted-hull technique
+function addOutline(group: THREE.Group, color: PieceColor) {
+  const outlineMat = outlineMaterials[color];
+  const outlineMeshes: THREE.Mesh[] = [];
+
+  group.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      outlineMeshes.push(child);
+    }
+  });
+
+  for (const mesh of outlineMeshes) {
+    const outline = new THREE.Mesh(mesh.geometry, outlineMat);
+    outline.position.copy(mesh.position);
+    outline.rotation.copy(mesh.rotation);
+    outline.scale.copy(mesh.scale).multiplyScalar(1.08);
+    outline.userData.isOutline = true;
+    group.add(outline);
+  }
+}
+
 function getOrCreateMaterial(key: string, factory: () => THREE.Material): THREE.Material {
   if (!materialCache.has(key)) {
     materialCache.set(key, factory());
@@ -599,15 +632,18 @@ function createPawn(materials: ReturnType<typeof getMaterials>): THREE.Group {
 
 function createPiece(piece: PieceType, color: PieceColor): THREE.Group {
   const materials = getMaterials(color);
+  let group: THREE.Group;
   switch (piece) {
-    case 'K': return createKing(materials);
-    case 'Q': return createQueen(materials);
-    case 'R': return createRook(materials);
-    case 'B': return createBishop(materials);
-    case 'N': return createKnight(materials);
-    case 'P': return createPawn(materials);
-    default: return createPawn(materials);
+    case 'K': group = createKing(materials); break;
+    case 'Q': group = createQueen(materials); break;
+    case 'R': group = createRook(materials); break;
+    case 'B': group = createBishop(materials); break;
+    case 'N': group = createKnight(materials); break;
+    case 'P': group = createPawn(materials); break;
+    default: group = createPawn(materials); break;
   }
+  addOutline(group, color);
+  return group;
 }
 
 export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareSize, perspective, whiteHat, blackHat }: ChessboardCanvasProps) {
@@ -682,6 +718,11 @@ export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareS
     fillLight.position.set(-4, 4, -2);
     scene.add(fillLight);
 
+    // Rim light from behind/below to outline pieces against dark squares
+    const rimLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    rimLight.position.set(0, -2, -6);
+    scene.add(rimLight);
+
     // Animation loop
     const animate = () => {
       timeRef.current += 0.016;
@@ -700,19 +741,32 @@ export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareS
         const square = currentBoard[row]?.[col];
         const isPlayerPiece = square?.pieceColor === currentPerspective;
 
-        // Idle sway
-        pieceGroup.rotation.y = Math.sin(time * 1.5 + row * 0.5 + col * 0.3) * 0.12;
+        // Default orientation: tilted forward so pieces face the camera
+        pieceGroup.rotation.x = -0.8;
 
-        // "Look up" effect when hovering over player's own pieces
-        // Tilt forward (negative X rotation makes piece look up at the camera)
-        const targetTilt = (isHovered && isPlayerPiece) ? -0.8 : 0;
-        const currentTilt = pieceGroup.userData.currentTilt || 0;
-        const newTilt = currentTilt + (targetTilt - currentTilt) * 0.15; // Smooth interpolation
-        pieceGroup.rotation.x = newTilt;
-        pieceGroup.userData.currentTilt = newTilt;
+        // Hover: single full spin; otherwise gentle idle sway
+        if (isHovered && isPlayerPiece) {
+          // Track spin start time per piece
+          if (!pieceGroup.userData.spinStart) {
+            pieceGroup.userData.spinStart = time;
+            pieceGroup.userData.spinBaseY = pieceGroup.rotation.y;
+          }
+          const elapsed = time - pieceGroup.userData.spinStart;
+          const spinDuration = 0.4; // seconds for one full rotation
+          if (elapsed < spinDuration) {
+            const progress = elapsed / spinDuration;
+            pieceGroup.rotation.y = pieceGroup.userData.spinBaseY + progress * Math.PI * 2;
+          } else {
+            // Spin complete, return to idle sway
+            pieceGroup.rotation.y = Math.sin(time * 1.5 + row * 0.5 + col * 0.3) * 0.12;
+          }
+        } else {
+          pieceGroup.userData.spinStart = null;
+          pieceGroup.rotation.y = Math.sin(time * 1.5 + row * 0.5 + col * 0.3) * 0.12;
+        }
 
-        // Bobbing
-        const baseY = pieceGroup.userData.baseY || 0;
+        // Bobbing (offset down by half a square to fit on squares with forward tilt)
+        const baseY = (pieceGroup.userData.baseY || 0) - 1.75;
         let currentY = baseY;
         let currentScale = 1.0;
 
@@ -720,7 +774,6 @@ export function ChessboardCanvas({ board, selectedSquare, hoveredSquare, squareS
           currentY = baseY + Math.abs(Math.sin(time * 5)) * 0.15;
           currentScale = 1.15;
         } else if (isHovered && isPlayerPiece) {
-          // Subtle lift when hovering
           currentY = baseY + 0.08;
           currentScale = 1.05;
         } else {

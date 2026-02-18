@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { DidYouKnow } from "./DidYouKnow";
 import { TxProgress } from "./TxProgress";
-import type { OpenGame, SavedGame, TxStep } from "../lib/types";
+import { BotDifficultyPicker } from "./BotDifficultyPicker";
+import type { OpenGame, SavedGame, TxStep, BotDifficulty } from "../lib/types";
 
 interface LobbyScreenProps {
   phase: string;
@@ -16,6 +17,7 @@ interface LobbyScreenProps {
   onResumeGame: (savedGame: SavedGame) => void;
   onDeleteSavedGame: (gameId: number) => void;
   onFetchOpenGames: () => Promise<void>;
+  onStartBotGame?: (difficulty: BotDifficulty) => void;
 }
 
 export function LobbyScreen({
@@ -31,6 +33,7 @@ export function LobbyScreen({
   onResumeGame,
   onDeleteSavedGame,
   onFetchOpenGames,
+  onStartBotGame,
 }: LobbyScreenProps) {
   const [createPassword, setCreatePassword] = useState("");
   const [joinGameId, setJoinGameId] = useState("");
@@ -184,6 +187,21 @@ export function LobbyScreen({
           </div>
         </div>
       )}
+
+      {/* Play vs Bot Section */}
+      {onStartBotGame && (
+        <div className="lobby-section bot-section">
+          <div className="section-header">
+            <h3>Play vs Bot</h3>
+          </div>
+          <p className="note">Practice offline — no blockchain transactions</p>
+          <BotDifficultyPicker onSelect={onStartBotGame} disabled={isBusy} />
+        </div>
+      )}
+
+      <div className="divider-with-text">
+        <span>or play online</span>
+      </div>
 
       {/* Open Games Section */}
       <div className="lobby-section">
