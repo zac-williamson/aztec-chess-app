@@ -3,6 +3,9 @@
  *
  * All state transitions use contract.simulate() — purely local Noir execution,
  * no transactions, no relay, no proofs. Both player states are maintained locally.
+ *
+ * MPC encryption/decryption is bypassed entirely since we control both sides.
+ * Instead, each player's fog-of-war view is computed directly in TypeScript.
  */
 
 import { useState, useRef, useCallback } from "react";
@@ -11,7 +14,6 @@ import {
   FogOfWarChessContractArtifact,
 } from "../artifacts/FogOfWarChess";
 import type { AztecAddress } from "@aztec/aztec.js/addresses";
-import { Fr } from "@aztec/aztec.js/fields";
 import { PIECE_IDS, WHITE_PLAYER } from "../lib/types";
 import type { GamePhase, PlayerRole, BotDifficulty } from "../lib/types";
 import { computeClientVision, rowColToNoirXY } from "../lib/chessUtils";
@@ -39,6 +41,56 @@ function convertBigInts(obj: any): any {
     return out;
   }
   return obj;
+}
+
+/**
+ * After one player moves, update the other player's fog-of-war view.
+ *
+ * This directly replicates the logic of consume_opponent_move_and_update_game_state
+ * without going through MPC encryption/decryption:
+ * - Visible squares: show the moving player's pieces, clear squares they vacated
+ * - Non-visible squares: remove stale opponent pieces (lost vision)
+ */
+function updateOpponentView(
+  movingPlayerBoard: any[],
+  opponentBoard: any[],
+  opponentPlayerId: number
+): any[] {
+  const movingPlayerId = opponentPlayerId === 0 ? 1 : 0;
+
+  // Compute opponent's vision based on their current board
+  const vision = computeClientVision(opponentBoard, opponentPlayerId);
+
+  const newBoard = opponentBoard.map((p: any) => ({ ...p }));
+
+  for (let i = 0; i < 64; i++) {
+    const isVisible = vision[i];
+    const currentPiece = opponentBoard[i];
+    const currentId = Number(currentPiece.id);
+    const currentPid = Number(currentPiece.player_id);
+    const movedPiece = movingPlayerBoard[i];
+    const movedId = Number(movedPiece.id);
+    const movedPid = Number(movedPiece.player_id);
+
+    if (isVisible) {
+      // Opponent can see this square — update with moving player's data
+      if (movedId !== PIECE_IDS.EMPTY && movedPid === movingPlayerId) {
+        // Moving player has their piece here — show it
+        newBoard[i] = { id: movedId, player_id: movedPid, has_moved: Number(movedPiece.has_moved) };
+      } else if (currentId !== PIECE_IDS.EMPTY && currentPid === movingPlayerId) {
+        // Had a moving player piece here but it's gone now — clear it
+        newBoard[i] = { id: PIECE_IDS.EMPTY, player_id: 0, has_moved: 0 };
+      }
+      // If the square has the opponent's own piece, leave it unchanged
+    } else {
+      // Not visible — clear any stale moving player pieces
+      if (currentId !== PIECE_IDS.EMPTY && currentPid === movingPlayerId) {
+        newBoard[i] = { id: PIECE_IDS.EMPTY, player_id: 0, has_moved: 0 };
+      }
+    }
+  }
+
+  return newBoard;
 }
 
 interface UseBotGameReturn {
@@ -79,21 +131,20 @@ export function useBotGame(
 
   // Refs for state that needs to be current in async callbacks
   const contractRef = useRef<FogOfWarChessContract | null>(null);
-  const gameStateRef = useRef<any>(null);
   const userStateRef = useRef<any>(null);
   // Bot's own user state (black side)
   const botUserStateRef = useRef<any>(null);
   const beliefRef = useRef<BeliefState | null>(null);
   const difficultyRef = useRef<BotDifficulty>("medium");
   const moveInProgressRef = useRef(false);
+  const moveCountRef = useRef(0);
 
   // Keep refs in sync — refs hold raw BigInt data for simulate(),
   // React state gets converted copies (no BigInts) for safe rendering.
-  const syncRefs = useCallback((gs: any, us: any) => {
-    gameStateRef.current = gs;
+  const syncState = useCallback((us: any) => {
     userStateRef.current = us;
-    setGameState(convertBigInts(gs));
     setUserState(convertBigInts(us));
+    setGameState({ move_count: moveCountRef.current });
   }, []);
 
   // ─── Start a bot game ──────────────────────────────────────────────
@@ -127,38 +178,13 @@ export function useBotGame(
         const contract = FogOfWarChessContract.at(contractAztecAddr, wallet);
         contractRef.current = contract;
 
-        // Initialize empty game state
-        let gs = await contract.methods
-          .__empty_game_state()
-          .simulate({ from: address });
-
-        // Initialize both player states
+        // Initialize both player states via Noir (sets up piece positions)
         const whiteState = await contract.methods
           .__empty_white_state()
           .simulate({ from: address });
 
         const blackState = await contract.methods
           .__empty_black_state()
-          .simulate({ from: address });
-
-        // Generate secrets for both players
-        const whiteEncrypt = Fr.random();
-        const whiteMask = Fr.random();
-        const blackEncrypt = Fr.random();
-        const blackMask = Fr.random();
-
-        whiteState.encrypt_secret = whiteEncrypt;
-        whiteState.mask_secret = whiteMask;
-        blackState.encrypt_secret = blackEncrypt;
-        blackState.mask_secret = blackMask;
-
-        // Commit secrets for both players
-        gs = await contract.methods
-          .__commit_to_user_secrets(gs, whiteEncrypt, whiteMask, 0)
-          .simulate({ from: address });
-
-        gs = await contract.methods
-          .__commit_to_user_secrets(gs, blackEncrypt, blackMask, 1)
           .simulate({ from: address });
 
         // Compute initial vision for white (human player)
@@ -172,9 +198,10 @@ export function useBotGame(
 
         // Initialize bot belief state
         beliefRef.current = createInitialBeliefState(WHITE_PLAYER); // bot tracks white pieces
+        moveCountRef.current = 0;
 
         botUserStateRef.current = blackState;
-        syncRefs(gs, whiteState);
+        syncState(whiteState);
         setConfirmedEmptySquares(initialConfirmed);
         setIsMyTurn(true);
         setPhase("playing");
@@ -186,13 +213,13 @@ export function useBotGame(
         console.error("Start bot game error:", e);
       }
     },
-    [wallet, address, node, syncRefs]
+    [wallet, address, node, syncState]
   );
 
   // ─── Execute bot's response move ───────────────────────────────────
 
   const executeBotMove = useCallback(
-    async (gs: any, humanUs: any) => {
+    async (humanUs: any) => {
       if (!contractRef.current || !address || !beliefRef.current) return;
 
       const contract = contractRef.current;
@@ -218,7 +245,6 @@ export function useBotGame(
         );
 
         if (!botMove) {
-          // No legal moves - bot is stuck (shouldn't happen in normal play)
           setStatusMessage("Bot has no legal moves. Your turn!");
           setIsMyTurn(true);
           setIsBotThinking(false);
@@ -231,43 +257,38 @@ export function useBotGame(
           Number(targetPiece.id) === PIECE_IDS.KING &&
           Number(targetPiece.player_id) === humanPlayerId;
 
-        // Execute bot's move through the simulate pipeline
+        // Create move data
         const moveData = await contract.methods
           .__create_move(botMove.fromX, botMove.fromY, botMove.toX, botMove.toY)
           .simulate({ from: address });
 
-        const userOutputState = await contract.methods
-          .__compute_move_output(gs, botUs, moveData, botPlayerId)
-          .simulate({ from: address });
-
-        // Update bot's own user state
-        const currentMoveNumber = Number(gs.move_count);
-        const isFirstTwo = currentMoveNumber < 2;
+        // Update bot's board via Noir (validates move + applies it)
+        const isFirstTwo = moveCountRef.current < 2;
         const newBotUs = await contract.methods
           .__update_user_state_from_move(isFirstTwo, botUs, moveData, botPlayerId)
           .simulate({ from: address });
 
-        // Update shared game state
-        const newGs = await contract.methods
-          .__update_game_state_from_move(gs, userOutputState, botPlayerId)
-          .simulate({ from: address });
+        moveCountRef.current += 1;
 
-        // Human consumes bot's move
-        const newHumanUs = await contract.methods
-          .__consume_opponent_move(newGs, humanUs, humanPlayerId)
-          .simulate({ from: address });
+        // Update human's fog-of-war view directly (no MPC)
+        const newHumanBoard = updateOpponentView(
+          newBotUs.game_state,
+          humanUs.game_state,
+          humanPlayerId
+        );
+        const newHumanUs = { ...humanUs, game_state: newHumanBoard };
 
         // Update confirmed empty squares for human
-        const clientVision = computeClientVision(newHumanUs.game_state, humanPlayerId);
+        const clientVision = computeClientVision(newHumanBoard, humanPlayerId);
         const newConfirmed = new Set<number>();
         for (let i = 0; i < 64; i++) {
-          if (clientVision[i] && Number(newHumanUs.game_state[i].id) === PIECE_IDS.EMPTY) {
+          if (clientVision[i] && Number(newHumanBoard[i].id) === PIECE_IDS.EMPTY) {
             newConfirmed.add(i);
           }
         }
 
         botUserStateRef.current = newBotUs;
-        syncRefs(newGs, newHumanUs);
+        syncState(newHumanUs);
         setConfirmedEmptySquares(newConfirmed);
 
         if (capturingKing) {
@@ -286,7 +307,7 @@ export function useBotGame(
         setIsBotThinking(false);
       }
     },
-    [address, syncRefs]
+    [address, syncState]
   );
 
   // ─── Human player makes a move ────────────────────────────────────
@@ -302,9 +323,8 @@ export function useBotGame(
       moveInProgressRef.current = true;
 
       const contract = contractRef.current;
-      const gs = gameStateRef.current;
       const us = userStateRef.current;
-      if (!gs || !us) {
+      if (!us) {
         moveInProgressRef.current = false;
         return;
       }
@@ -325,56 +345,37 @@ export function useBotGame(
           Number(targetPiece.id) === PIECE_IDS.KING &&
           Number(targetPiece.player_id) === botPlayerId;
 
-        // Update bot's belief state if we're capturing a bot piece
+        // Update bot belief state for captures
         const capturedId = Number(targetPiece.id);
-        if (capturedId !== PIECE_IDS.EMPTY && Number(targetPiece.player_id) === botPlayerId) {
-          // Bot doesn't observe this directly, but we track it for sampling accuracy
-          // (The bot will see the capture when it consumes the opponent move)
+        if (capturedId !== PIECE_IDS.EMPTY && Number(targetPiece.player_id) === botPlayerId && beliefRef.current) {
+          beliefRef.current = recordCapture(beliefRef.current, capturedId);
         }
 
-        // Step 1: Create move
+        // Create move data
         const moveData = await contract.methods
           .__create_move(from.x, from.y, to.x, to.y)
           .simulate({ from: address });
 
-        // Step 2: Compute output
-        const userOutputState = await contract.methods
-          .__compute_move_output(gs, us, moveData, humanPlayerId)
-          .simulate({ from: address });
-
-        // Step 3: Update human's user state
-        const currentMoveNumber = Number(gs.move_count);
-        const isFirstTwo = currentMoveNumber < 2;
+        // Update human's board via Noir (validates move + applies it)
+        const isFirstTwo = moveCountRef.current < 2;
         const newHumanUs = await contract.methods
           .__update_user_state_from_move(isFirstTwo, us, moveData, humanPlayerId)
           .simulate({ from: address });
 
-        // Step 4: Update shared game state
-        const newGs = await contract.methods
-          .__update_game_state_from_move(gs, userOutputState, humanPlayerId)
-          .simulate({ from: address });
+        moveCountRef.current += 1;
 
-        // Step 5: Bot consumes human's move
+        // Update bot's fog-of-war view directly (no MPC)
         const botUs = botUserStateRef.current;
         if (botUs) {
-          const newBotUs = await contract.methods
-            .__consume_opponent_move(newGs, botUs, botPlayerId)
-            .simulate({ from: address });
-
-          botUserStateRef.current = newBotUs;
-
-          // Update bot's belief: if human captured a bot piece, remove it
-          if (capturedId !== PIECE_IDS.EMPTY && Number(targetPiece.player_id) === botPlayerId) {
-            // Bot sees that its piece was captured
-          }
-          // If the bot sees the human captured one of its own pieces on a visible square,
-          // the belief state is updated by observing what's on the board
-          if (beliefRef.current && capturedId !== PIECE_IDS.EMPTY && Number(targetPiece.player_id) === humanPlayerId) {
-            // Human piece was captured — this would be the bot capturing, handled elsewhere
-          }
+          const newBotBoard = updateOpponentView(
+            newHumanUs.game_state,
+            botUs.game_state,
+            botPlayerId
+          );
+          botUserStateRef.current = { ...botUs, game_state: newBotBoard };
         }
 
-        syncRefs(newGs, newHumanUs);
+        syncState(newHumanUs);
 
         if (capturingKing) {
           setPhase("game_over");
@@ -389,7 +390,7 @@ export function useBotGame(
         moveInProgressRef.current = false;
 
         // Trigger bot's response
-        await executeBotMove(newGs, newHumanUs);
+        await executeBotMove(newHumanUs);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Move failed";
         setError(msg);
@@ -397,7 +398,7 @@ export function useBotGame(
         moveInProgressRef.current = false;
       }
     },
-    [address, syncRefs, executeBotMove]
+    [address, syncState, executeBotMove]
   );
 
   // ─── Return to lobby ──────────────────────────────────────────────
@@ -406,7 +407,6 @@ export function useBotGame(
     setPhase("lobby");
     setGameState(null);
     setUserState(null);
-    gameStateRef.current = null;
     userStateRef.current = null;
     botUserStateRef.current = null;
     beliefRef.current = null;
@@ -417,6 +417,7 @@ export function useBotGame(
     setIsBotThinking(false);
     setBotDifficulty(null);
     moveInProgressRef.current = false;
+    moveCountRef.current = 0;
   }, []);
 
   return {
