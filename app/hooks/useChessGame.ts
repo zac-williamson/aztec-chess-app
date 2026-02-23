@@ -1188,7 +1188,7 @@ export function useChessGame(
 
       // Query last 50 games (or fewer if less exist)
       const startId = Math.max(0, maxGameId - 50);
-      const games: OpenGame[] = [];
+      const games: { gameId: number; hasPassword: boolean }[] = [];
 
       for (let gameId = startId; gameId < maxGameId; gameId++) {
         try {
@@ -1212,7 +1212,47 @@ export function useChessGame(
         }
       }
 
-      setOpenGames(games);
+      // Query NewGame events to get creation block numbers
+      const currentBlock = await node.getBlockNumber();
+      const BLOCK_TIME_SECONDS = 36;
+      const ONE_WEEK_SECONDS = 7 * 86400;
+      const gameCreationBlocks = new Map<number, number>();
+
+      if (games.length > 0) {
+        try {
+          const { EventSelector } = await import("@aztec/aztec.js/abi");
+          const newGameSelector = FogOfWarChessContract.events.NewGame.eventSelector;
+          const { logs } = await node.getPublicLogs({
+            fromBlock: 1,
+            toBlock: currentBlock + 1,
+          });
+          for (const log of logs) {
+            const fields = log.log.getEmittedFields();
+            const selectorField = fields[fields.length - 1];
+            if (EventSelector.fromField(selectorField).equals(newGameSelector)) {
+              const eventGameId = Number(fields[0].toBigInt());
+              gameCreationBlocks.set(eventGameId, log.id.blockNumber);
+            }
+          }
+        } catch (e) {
+          console.error("Failed to fetch NewGame events for elapsed time:", e);
+        }
+      }
+
+      // Compute elapsed time and filter stale games
+      const openGames: OpenGame[] = [];
+      for (const game of games) {
+        const creationBlock = gameCreationBlocks.get(game.gameId);
+        const elapsedSeconds = creationBlock != null
+          ? (currentBlock - creationBlock) * BLOCK_TIME_SECONDS
+          : 0;
+
+        if (elapsedSeconds <= ONE_WEEK_SECONDS) {
+          openGames.push({ ...game, elapsedSeconds });
+        }
+      }
+
+      setOpenGames(openGames);
     } catch (e) {
       console.error("Failed to fetch open games:", e);
     } finally {

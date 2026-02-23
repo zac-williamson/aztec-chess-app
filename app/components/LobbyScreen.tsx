@@ -20,6 +20,13 @@ interface LobbyScreenProps {
   onStartBotGame?: (difficulty: BotDifficulty) => void;
 }
 
+function formatElapsedTime(seconds: number): string {
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+  return `${Math.floor(seconds / 86400)} days ago`;
+}
+
 export function LobbyScreen({
   phase,
   statusMessage,
@@ -230,6 +237,7 @@ export function LobbyScreen({
           {openGames.map((game) => (
             <div key={game.gameId} className="game-row">
               <span className="game-id">Game #{game.gameId}</span>
+              <span className="game-elapsed-time">{formatElapsedTime(game.elapsedSeconds)}</span>
               <span className="game-password-icon" title={game.hasPassword ? "Password protected" : "No password"}>
                 {game.hasPassword ? "🔒" : "🔓"}
               </span>

@@ -1139,6 +1139,12 @@ code, .mono {
   color: var(--color-text);
 }
 
+.game-elapsed-time {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
 .game-password-icon {
   font-size: var(--text-lg);
   width: 28px;

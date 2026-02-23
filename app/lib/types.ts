@@ -42,6 +42,7 @@ export interface BoardSquare {
 export interface OpenGame {
   gameId: number;
   hasPassword: boolean;
+  elapsedSeconds: number;
 }
 
 export interface SavedGame {
