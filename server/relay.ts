@@ -3,6 +3,22 @@ import type { RelayMessage } from "./protocol";
 
 const PORT = Number(process.env.PORT) || 8081;
 
+// Allowed message types that clients may forward to their peer.
+// JOIN is handled separately; PEER_CONNECTED / PEER_DISCONNECTED are
+// server-originated and must never come from a client.
+const FORWARDABLE_TYPES = new Set(["MOVE", "MOVE_PROVEN", "MOVE_FAILED", "EMOTE"]);
+
+/**
+ * Validate that a parsed message is a known forwardable type.
+ * Returns true only for whitelisted message types with the correct shape.
+ */
+export function isForwardableMessage(msg: unknown): msg is RelayMessage {
+  if (typeof msg !== "object" || msg === null) return false;
+  const m = msg as Record<string, unknown>;
+  if (typeof m.type !== "string") return false;
+  return FORWARDABLE_TYPES.has(m.type);
+}
+
 interface GameRoom {
   white: WebSocket | null;
   black: WebSocket | null;
@@ -10,7 +26,7 @@ interface GameRoom {
 
 const rooms = new Map<number, GameRoom>();
 
-const wss = new WebSocketServer({ port: PORT });
+const wss = new WebSocketServer({ port: PORT, maxPayload: 1024 * 1024 });
 console.log(`Relay server listening on port ${PORT}`);
 
 wss.on("connection", (ws) => {
@@ -53,7 +69,9 @@ wss.on("connection", (ws) => {
       return;
     }
 
-    // All other messages are forwarded to the peer
+    // Only forward whitelisted message types
+    if (!isForwardableMessage(msg)) return;
+
     if (joinedGameId === null || joinedRole === null) return;
     const room = rooms.get(joinedGameId);
     if (!room) return;

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import type { RelayMessage, PlayerRole } from "../lib/types";
+import type { RelayMessage, PlayerRole, Emote } from "../lib/types";
 import relayConfig from "../config/relay.json";
 
 interface UseRelayOptions {
@@ -9,6 +9,7 @@ interface UseRelayOptions {
   onMove: (msg: Extract<RelayMessage, { type: "MOVE" }>) => void;
   onMoveProven: (msg: Extract<RelayMessage, { type: "MOVE_PROVEN" }>) => void;
   onMoveFailed: (msg: Extract<RelayMessage, { type: "MOVE_FAILED" }>) => void;
+  onEmote: (msg: Extract<RelayMessage, { type: "EMOTE" }>) => void;
 }
 
 export function useRelay({
@@ -18,6 +19,7 @@ export function useRelay({
   onMove,
   onMoveProven,
   onMoveFailed,
+  onEmote,
 }: UseRelayOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const [isPeerConnected, setIsPeerConnected] = useState(false);
@@ -28,10 +30,12 @@ export function useRelay({
   const onMoveRef = useRef(onMove);
   const onMoveProvenRef = useRef(onMoveProven);
   const onMoveFailedRef = useRef(onMoveFailed);
+  const onEmoteRef = useRef(onEmote);
 
   onMoveRef.current = onMove;
   onMoveProvenRef.current = onMoveProven;
   onMoveFailedRef.current = onMoveFailed;
+  onEmoteRef.current = onEmote;
 
   const connect = useCallback(() => {
     if (gameId === null || !role || wsRef.current) {
@@ -74,6 +78,9 @@ export function useRelay({
           break;
         case "MOVE_FAILED":
           onMoveFailedRef.current(msg);
+          break;
+        case "EMOTE":
+          onEmoteRef.current(msg);
           break;
       }
     };
@@ -156,11 +163,19 @@ export function useRelay({
     [send]
   );
 
+  const sendEmote = useCallback(
+    (emote: Emote) => {
+      send({ type: "EMOTE", emote });
+    },
+    [send]
+  );
+
   return {
     isConnected,
     isPeerConnected,
     sendMove,
     sendMoveProven,
     sendMoveFailed,
+    sendEmote,
   };
 }

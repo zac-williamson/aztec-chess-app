@@ -1,14 +1,15 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Chessboard } from "./Chessboard";
-import { FlappyPawn } from "./FlappyPawn";
+import { EmoteBar } from "./EmoteBar";
 import { DidYouKnow } from "./DidYouKnow";
 import { VictoryHatModal } from "./VictoryHatModal";
 import {
   buildBoardFromUserState,
   isOwnPiece,
   validateMovePattern,
+  PIECE_SYMBOLS,
 } from "../lib/chessUtils";
-import type { PlayerRole, GamePhase, BoardSquare, Hat, BotDifficulty } from "../lib/types";
+import type { PlayerRole, GamePhase, BoardSquare, Hat, BotDifficulty, Emote } from "../lib/types";
 
 // Singleton AudioContext for efficient sound playback
 let audioContext: AudioContext | null = null;
@@ -173,6 +174,9 @@ interface GameScreenProps {
     toRow: number,
     toCol: number
   ) => Promise<void>;
+  // Emote props (multiplayer only)
+  onSendEmote?: (emote: Emote) => void;
+  receivedEmote?: Emote | null;
   // Bot game props
   isBotGame?: boolean;
   isBotThinking?: boolean;
@@ -202,6 +206,8 @@ export function GameScreen({
   relayConnected = false,
   peerConnected = false,
   onMakeMove,
+  onSendEmote,
+  receivedEmote = null,
   isBotGame = false,
   isBotThinking = false,
   botDifficulty = null,
@@ -492,16 +498,11 @@ export function GameScreen({
   const whiteHat = role === "white" ? myHat : opponentHat;
   const blackHat = role === "black" ? myHat : opponentHat;
 
-  // Render captured pieces using unicode symbols
-  const pieceSymbols: Record<string, string> = {
-    K: "♚", Q: "♛", R: "♜", B: "♝", N: "♞", P: "♟",
-  };
-
   const renderCapturedPieces = (pieces: string[], color: "white" | "black") => {
     if (pieces.length === 0) return <span className="no-captures">None</span>;
     return pieces.map((piece, i) => (
       <span key={i} className={`captured-piece ${color}`}>
-        {pieceSymbols[piece] || piece}
+        {PIECE_SYMBOLS[piece] || piece}
       </span>
     ));
   };
@@ -711,8 +712,17 @@ export function GameScreen({
               </div>
             )}
 
-            {/* Return to lobby button (bot games) */}
-            {isBotGame && onReturnToLobby && (
+            {/* Emote bar (multiplayer only) */}
+            {!isBotGame && onSendEmote && (
+              <EmoteBar
+                onSendEmote={onSendEmote}
+                receivedEmote={receivedEmote}
+                disabled={!peerConnected}
+              />
+            )}
+
+            {/* Return to lobby button */}
+            {onReturnToLobby && (
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={onReturnToLobby}
@@ -721,13 +731,6 @@ export function GameScreen({
                 Return to Lobby
               </button>
             )}
-
-            <div className="mini-game-section">
-              <p className="mini-game-label">
-                {isMyTurn && phase === "playing" ? "Make your move first!" : "Play while you wait!"}
-              </p>
-              <FlappyPawn playerColor={role} disabled={isMyTurn && phase === "playing"} />
-            </div>
 
             {!isMyTurn && <DidYouKnow />}
           </div>
@@ -759,12 +762,19 @@ export function GameScreen({
                 )}
               </div>
             ) : (
-              <button
-                className="btn btn-primary"
-                onClick={() => window.location.reload()}
-              >
-                Play Again
-              </button>
+              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => window.location.reload()}
+                >
+                  Play Again
+                </button>
+                {onReturnToLobby && (
+                  <button className="btn btn-secondary" onClick={onReturnToLobby}>
+                    Return to Lobby
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

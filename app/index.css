@@ -716,10 +716,6 @@ code, .mono {
   box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.3);
 }
 
-.square.last-move {
-  background: var(--board-last-move);
-}
-
 /* Valid Move Indicators */
 .square.valid-move::after {
   content: '';
@@ -1601,24 +1597,6 @@ code, .mono {
   animation: spin 1s linear infinite;
 }
 
-.mini-game-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.mini-game-label {
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-  font-style: italic;
-}
-
-.flappy-pawn-container {
-  display: flex;
-  justify-content: center;
-}
-
 /* Proof queue status badge */
 .proof-status-badge {
   display: flex;
@@ -1925,4 +1903,62 @@ code, .mono {
   color: var(--color-text-muted);
   text-decoration: line-through;
   text-decoration-color: var(--aztec-chartreuse);
+}
+
+/* ─── Emote bar ─── */
+
+.emote-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.emote-buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.emote-btn {
+  all: unset;
+  cursor: pointer;
+  font-size: 1.4rem;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--board-border);
+  background: var(--color-background);
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.emote-btn:hover:not(:disabled) {
+  transform: scale(1.25);
+  border-color: var(--aztec-chartreuse);
+}
+
+.emote-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.emote-received {
+  position: absolute;
+  top: -3rem;
+  pointer-events: none;
+}
+
+.emote-received-emoji {
+  font-size: 2.2rem;
+  filter: drop-shadow(0 0 8px rgba(212, 255, 40, 0.6));
+}
+
+@keyframes emote-pop {
+  0%   { opacity: 0; transform: scale(0.3) translateY(10px); }
+  30%  { opacity: 1; transform: scale(1.3) translateY(-5px); }
+  60%  { transform: scale(1) translateY(0); }
+  100% { opacity: 0; transform: scale(0.8) translateY(-20px); }
+}
+
+.animate-emote-pop {
+  animation: emote-pop 2.5s ease-out forwards;
 }

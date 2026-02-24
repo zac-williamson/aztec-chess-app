@@ -4,14 +4,26 @@ import {
   FogOfWarChessContractArtifact,
   type MoveEvent,
 } from "../artifacts/FogOfWarChess";
-import type { AztecAddress } from "@aztec/aztec.js/addresses";
+import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/aztec.js/fields";
+import { decodeFromAbi, EventSelector } from "@aztec/aztec.js/abi";
 import type { GamePhase, PlayerRole, OpenGame, SavedGame, TxStep, QueuedProof } from "../lib/types";
 import { PIECE_IDS } from "../lib/types";
+import environmentConfig from "../config/environment.json";
+import devnetConfig from "../config/networks/devnet.json";
+import localConfig from "../config/networks/local.json";
+
+const networkConfig = environmentConfig.network === "local" ? localConfig : devnetConfig;
 
 const SAVED_GAMES_KEY = "aztec-chess-saved-games";
 
-// Hash a password string into a Field element using SHA-256
+// Hash a password string into a Field element using SHA-256.
+// This is layer 1 of a two-layer hashing scheme:
+//   1. Client-side: SHA-256(password) → Fr (this function)
+//   2. On-chain: Poseidon2(Fr) for storage in contract state
+// The client sends the SHA-256 hash; the contract Poseidon-hashes it again
+// before comparing against the stored value, so the raw password never
+// appears on-chain or in calldata.
 async function hashPassword(password: string): Promise<Fr> {
   if (!password) return Fr.ZERO;
   const data = new TextEncoder().encode(password);
@@ -64,9 +76,6 @@ async function getDecodedEventsNoValidation<T>(
   from: number,
   limit: number
 ): Promise<T[]> {
-  const { decodeFromAbi } = await import("@aztec/aztec.js/abi");
-  const { EventSelector } = await import("@aztec/aztec.js/abi");
-
   const { logs } = await node.getPublicLogs({
     fromBlock: from,
     toBlock: from + limit,
@@ -139,6 +148,7 @@ interface UseChessGameReturn {
   ) => Promise<void>;
   fetchOpenGames: () => Promise<void>;
   setRole: (role: PlayerRole) => void;
+  returnToLobby: () => void;
   // Relay integration
   handleRelayMove: (msg: { moveNumber: number; userOutputState: any; gameEnded: boolean }) => Promise<void>;
   setRelaySendMove: (fn: ((moveNumber: number, userOutputState: any, gameEnded: boolean) => void) | null) => void;
@@ -161,7 +171,6 @@ export function useChessGame(
   const [gameState, setGameState] = useState<any>(null);
   const [userState, setUserState] = useState<any>(null);
   const [confirmedEmptySquares, setConfirmedEmptySquares] = useState<Set<number>>(new Set());
-  const [_moveCount, setMoveCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("Waiting...");
   const [openGames, setOpenGames] = useState<OpenGame[]>([]);
@@ -180,6 +189,7 @@ export function useChessGame(
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const gameStateRef = useRef<any>(null);
   const userStateRef = useRef<any>(null);
+  const confirmedEmptySquaresRef = useRef<Set<number>>(new Set());
 
   const proofInProgressRef = useRef(false);
   const proofQueueRef = useRef<QueuedProof[]>([]);
@@ -337,6 +347,9 @@ export function useChessGame(
   useEffect(() => {
     userStateRef.current = userState;
   }, [userState]);
+  useEffect(() => {
+    confirmedEmptySquaresRef.current = confirmedEmptySquares;
+  }, [confirmedEmptySquares]);
 
   // Compute whose turn it is (black must wait for opponent to join since black is the creator)
   // White's turn when move_count is even, Black's turn when move_count is odd
@@ -367,8 +380,7 @@ export function useChessGame(
         setTxStep("building");
         setStatusMessage("Connecting to chess contract...");
 
-        const { AztecAddress: AztecAddr } = await import("@aztec/aztec.js/addresses");
-        const contractAztecAddr = AztecAddr.fromString(contractConfig.contractAddress);
+        const contractAztecAddr = AztecAddress.fromString(contractConfig.contractAddress);
 
         // Register contract with this wallet's PXE
         const contractInstance = await node.getContract(contractAztecAddr);
@@ -485,10 +497,7 @@ export function useChessGame(
         setStatusMessage("Connecting to contract...");
 
         // Connect to existing contract
-        const { AztecAddress: AztecAddr } = await import(
-          "@aztec/aztec.js/addresses"
-        );
-        const contractAztecAddr = AztecAddr.fromString(contractConfig.contractAddress);
+        const contractAztecAddr = AztecAddress.fromString(contractConfig.contractAddress);
 
         // Fetch the contract instance from the Aztec node and register it
         // with this wallet's PXE (each browser tab has its own PXE)
@@ -641,8 +650,7 @@ export function useChessGame(
         setPhase("joining");
         setStatusMessage("Reconnecting to game...");
 
-        const { AztecAddress: AztecAddr } = await import("@aztec/aztec.js/addresses");
-        const contractAztecAddr = AztecAddr.fromString(contractConfig.contractAddress);
+        const contractAztecAddr = AztecAddress.fromString(contractConfig.contractAddress);
 
         // Register contract with wallet
         const contractInstance = await node.getContract(contractAztecAddr);
@@ -770,7 +778,7 @@ export function useChessGame(
         setUserState({ ...us });
         setConfirmedEmptySquares(newConfirmedEmpty);
         setOpponentJoined(opponentJoinedStatus);
-        setMoveCount(currentMoveCount);
+
         lastBlockRef.current = currentBlock;
         lastPolledChainMoveCountRef.current = currentMoveCount;
 
@@ -948,7 +956,7 @@ export function useChessGame(
         // Spread to create new references for React
         setUserState({ ...newUserState });
         setGameState({ ...newGameState });
-        setMoveCount((prev) => prev + 1);
+
 
         // Step 5: Enqueue proof for background processing
         const queueEntry: QueuedProof = {
@@ -1096,7 +1104,7 @@ export function useChessGame(
 
         // Calculate client vision and update confirmed empty squares
         const clientVision = computeClientVision(newUserState.game_state, myPlayerId);
-        const newConfirmedEmpty = new Set(confirmedEmptySquares);
+        const newConfirmedEmpty = new Set(confirmedEmptySquaresRef.current);
         for (let i = 0; i < 64; i++) {
           if (clientVision[i] && Number(newUserState.game_state[i].id) === PIECE_IDS.EMPTY) {
             newConfirmedEmpty.add(i);
@@ -1107,7 +1115,6 @@ export function useChessGame(
         // Spread to create new references for React
         setGameState({ ...newGameState });
         setUserState({ ...newUserState });
-        setMoveCount((prev) => prev + 1);
 
         // Check if game ended
         if (msg.gameEnded) {
@@ -1120,7 +1127,7 @@ export function useChessGame(
         console.error("[relay] Error processing opponent move:", e);
       }
     },
-    [address, role, confirmedEmptySquares]
+    [address, role]
   );
 
   // ─── Setters for relay integration (called from App.tsx) ───
@@ -1167,8 +1174,7 @@ export function useChessGame(
 
     setIsLoadingGames(true);
     try {
-      const { AztecAddress: AztecAddr } = await import("@aztec/aztec.js/addresses");
-      const contractAddr = AztecAddr.fromString(contractConfig.contractAddress);
+      const contractAddr = AztecAddress.fromString(contractConfig.contractAddress);
 
       // Register contract if needed
       const contractInstance = await node.getContract(contractAddr);
@@ -1214,16 +1220,16 @@ export function useChessGame(
 
       // Query NewGame events to get creation block numbers
       const currentBlock = await node.getBlockNumber();
-      const BLOCK_TIME_SECONDS = 36;
+      const blockTimeSeconds = networkConfig.blockTimeSeconds;
       const ONE_WEEK_SECONDS = 7 * 86400;
       const gameCreationBlocks = new Map<number, number>();
 
       if (games.length > 0) {
         try {
-          const { EventSelector } = await import("@aztec/aztec.js/abi");
           const newGameSelector = FogOfWarChessContract.events.NewGame.eventSelector;
+          const maxGameAgeBlocks = Math.ceil(ONE_WEEK_SECONDS / blockTimeSeconds);
           const { logs } = await node.getPublicLogs({
-            fromBlock: 1,
+            fromBlock: Math.max(1, currentBlock - maxGameAgeBlocks),
             toBlock: currentBlock + 1,
           });
           for (const log of logs) {
@@ -1244,7 +1250,7 @@ export function useChessGame(
       for (const game of games) {
         const creationBlock = gameCreationBlocks.get(game.gameId);
         const elapsedSeconds = creationBlock != null
-          ? (currentBlock - creationBlock) * BLOCK_TIME_SECONDS
+          ? (currentBlock - creationBlock) * blockTimeSeconds
           : 0;
 
         if (elapsedSeconds <= ONE_WEEK_SECONDS) {
@@ -1355,7 +1361,7 @@ export function useChessGame(
 
       // Calculate client vision and update confirmed empty squares
       const clientVision = computeClientVision(latestUs.game_state, myPlayerId);
-      const newConfirmedEmpty = new Set(confirmedEmptySquares);
+      const newConfirmedEmpty = new Set(confirmedEmptySquaresRef.current);
       for (let i = 0; i < 64; i++) {
         if (clientVision[i] && Number(latestUs.game_state[i].id) === PIECE_IDS.EMPTY) {
           newConfirmedEmpty.add(i);
@@ -1365,7 +1371,6 @@ export function useChessGame(
 
       setGameState({ ...latestGs });
       setUserState({ ...latestUs });
-      setMoveCount((prev) => prev + 1);
 
       // Check if game ended
       const gameEnded = latestGs.game_ended === true ||
@@ -1381,7 +1386,7 @@ export function useChessGame(
     } catch (e) {
       console.error("Poll error:", e);
     }
-  }, [node, role, address, confirmedEmptySquares]);
+  }, [node, role, address]);
 
   // Start/stop polling based on phase and turn
   useEffect(() => {
@@ -1411,6 +1416,56 @@ export function useChessGame(
     };
   }, [phase, isMyTurn, opponentJoined, role, pollForOpponentMove, pollForOpponentJoin]);
 
+  // ─── Return to lobby (leave current game) ───
+
+  const returnToLobby = useCallback(() => {
+    // Stop polling
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+
+    // Reset all game state
+    setPhase("lobby");
+    setRole(null);
+    setGameId(null);
+    setContractAddress(null);
+    setGameState(null);
+    setUserState(null);
+    setConfirmedEmptySquares(new Set());
+
+    setError(null);
+    setStatusMessage("Waiting...");
+    setOpponentJoined(false);
+    setCreatedGamePassword("");
+    setMyElo(1200);
+    setOpponentElo(1200);
+    setTxStep(null);
+    setProofQueue([]);
+    setPendingProofCount(0);
+    setLastProvenMove(0);
+
+    // Reset refs
+    contractRef.current = null;
+    lastBlockRef.current = 0;
+    gameStateRef.current = null;
+    userStateRef.current = null;
+    proofQueueRef.current = [];
+    proofInProgressRef.current = false;
+    lastConfirmedMoveRef.current = 0;
+    lastProvenMoveRef.current = 0;
+    lastPolledChainMoveCountRef.current = 0;
+    encryptSecretRef.current = null;
+    maskSecretRef.current = null;
+    opponentSecretHashesRef.current = null;
+
+    // Clear relay callbacks
+    relaySendMoveRef.current = null;
+    relaySendMoveProvenRef.current = null;
+    relaySendMoveFailedRef.current = null;
+    relayConnectedRef.current = false;
+  }, []);
+
   return {
     phase,
     role,
@@ -1438,6 +1493,7 @@ export function useChessGame(
     makeMove,
     fetchOpenGames,
     setRole,
+    returnToLobby,
     // Relay integration
     handleRelayMove,
     setRelaySendMove,

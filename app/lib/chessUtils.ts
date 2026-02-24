@@ -414,7 +414,6 @@ export function getValidMoves(
       const error = validateMovePattern(board, fromRow, fromCol, toRow, toCol, role);
       if (error === null) {
         // Basic validation passed - check path for sliding pieces
-        const to = board[toRow][toCol];
         const piece = from.piece;
 
         // For sliding pieces (B, R, Q), check if path is clear

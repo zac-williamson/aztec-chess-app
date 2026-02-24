@@ -85,7 +85,7 @@ export default (_, argv) => ({
     asyncWebAssembly: true,
   },
   devServer: {
-    port: 3000,
+    port: 8080,
     hot: true,
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",

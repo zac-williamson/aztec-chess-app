@@ -15,8 +15,6 @@ import localConfig from "../config/networks/local.json";
 const networkConfig = environmentConfig.network === "local" ? localConfig : devnetConfig;
 
 const ACCOUNT_SECRET_KEY = "aztec-chess-account-secret";
-const ACCOUNT_DEPLOYED_KEY = "aztec-chess-account-deployed";
-
 // Get the SponsoredFPC contract instance (same pattern as deploy.ts)
 async function getSponsoredFPCContract() {
   const instance = await getContractInstanceFromInstantiationParams(SponsoredFPCContractArtifact, {
@@ -40,19 +38,6 @@ function getOrCreateAccountSecret(): { secret: Fr; isNew: boolean } {
   const secret = Fr.random();
   localStorage.setItem(ACCOUNT_SECRET_KEY, secret.toString());
   return { secret, isNew: true };
-}
-
-// Check if account has been deployed (stored in localStorage after successful deployment)
-function isAccountDeployed(): boolean {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem(ACCOUNT_DEPLOYED_KEY) === "true";
-}
-
-// Mark account as deployed in localStorage
-function markAccountDeployed(): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(ACCOUNT_DEPLOYED_KEY, "true");
-  }
 }
 
 export function useAztec() {
@@ -94,7 +79,6 @@ export function useAztec() {
       // Get or create account secret from localStorage
       const { secret: accountSecret, isNew: isNewSecret } = getOrCreateAccountSecret();
       console.log(isNewSecret ? "Generated new account secret" : "Using existing account secret");
-      console.log("account secret ", accountSecret);
       // Create account manager with persistent secret
       const signingKey = deriveSigningKey(accountSecret);
       const accountManager = await embeddedWallet.createSchnorrAccount(accountSecret, Fr.ZERO, signingKey);
@@ -129,7 +113,6 @@ export function useAztec() {
           wait: { timeout: 300 },
         });
         console.log("Account deployed successfully");
-        markAccountDeployed();
       }
 
       setWallet(embeddedWallet);

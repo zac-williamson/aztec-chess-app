@@ -7,7 +7,7 @@ import { useRelay } from "../hooks/useRelay";
 import { LobbyScreen } from "./LobbyScreen";
 import { GameScreen } from "./GameScreen";
 import { DidYouKnow } from "./DidYouKnow";
-import type { Hat, RelayMessage, GameMode, BotDifficulty } from "../lib/types";
+import type { Hat, RelayMessage, GameMode, BotDifficulty, Emote } from "../lib/types";
 
 export function App() {
   const aztec = useAztec();
@@ -17,6 +17,7 @@ export function App() {
   const [wonHat, setWonHat] = useState<Hat | null>(null);
   const lastCheckedGameRef = useRef<number | null>(null);
   const [gameMode, setGameMode] = useState<GameMode>("none");
+  const [receivedEmote, setReceivedEmote] = useState<Emote | null>(null);
 
   // Relay message handlers (stable refs via useCallback)
   const handleRelayMoveMsg = useCallback(
@@ -41,6 +42,15 @@ export function App() {
     []
   );
 
+  const handleEmote = useCallback(
+    (msg: Extract<RelayMessage, { type: "EMOTE" }>) => {
+      // Set a new object each time to retrigger the effect even for repeated emotes
+      setReceivedEmote(null);
+      setTimeout(() => setReceivedEmote(msg.emote), 0);
+    },
+    []
+  );
+
   const relay = useRelay({
     gameId: game.gameId,
     role: game.role,
@@ -48,6 +58,7 @@ export function App() {
     onMove: handleRelayMoveMsg,
     onMoveProven: handleMoveProven,
     onMoveFailed: handleMoveFailed,
+    onEmote: handleEmote,
   });
 
   // Wire relay send functions into useChessGame
@@ -259,6 +270,9 @@ export function App() {
       relayConnected={relay.isConnected}
       peerConnected={relay.isPeerConnected}
       onMakeMove={game.makeMove}
+      onSendEmote={relay.sendEmote}
+      receivedEmote={receivedEmote}
+      onReturnToLobby={game.returnToLobby}
     />
   );
 }

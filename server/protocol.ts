@@ -4,4 +4,5 @@ export type RelayMessage =
   | { type: "PEER_DISCONNECTED" }
   | { type: "MOVE"; moveNumber: number; userOutputState: any; gameEnded: boolean }
   | { type: "MOVE_PROVEN"; moveNumber: number; blockNumber: number }
-  | { type: "MOVE_FAILED"; moveNumber: number; reason: string };
+  | { type: "MOVE_FAILED"; moveNumber: number; reason: string }
+  | { type: "EMOTE"; emote: string };

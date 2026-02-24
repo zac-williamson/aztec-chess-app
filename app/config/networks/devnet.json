@@ -1,6 +1,7 @@
 {
   "id": "devnet",
   "nodeUrl": "https://v4-devnet-1.aztec-labs.com",
+  "blockTimeSeconds": 36,
   "chainId": "11155111",
   "rollupVersion": "138964170",
   "contracts": {

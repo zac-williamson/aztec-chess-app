@@ -79,7 +79,7 @@ export const HAT_TYPE_NAMES: Record<number, string> = {
 // Hat quality names based on winner's ELO
 export const HAT_QUALITY_NAMES: Record<number, string> = {
   0: "Tattered",
-  1: "Plain",
+  1: "Shoddy",
   2: "Plain",
   3: "Fine",
   4: "Elegant",
@@ -98,13 +98,17 @@ export interface QueuedProof {
   retryCount?: number;
 }
 
+export const EMOTES = ["👋", "❤️", "🙂", "😢", "👑"] as const;
+export type Emote = (typeof EMOTES)[number];
+
 export type RelayMessage =
   | { type: "JOIN"; gameId: number; role: "white" | "black" }
   | { type: "PEER_CONNECTED" }
   | { type: "PEER_DISCONNECTED" }
   | { type: "MOVE"; moveNumber: number; userOutputState: any; gameEnded: boolean }
   | { type: "MOVE_PROVEN"; moveNumber: number; blockNumber: number }
-  | { type: "MOVE_FAILED"; moveNumber: number; reason: string };
+  | { type: "MOVE_FAILED"; moveNumber: number; reason: string }
+  | { type: "EMOTE"; emote: Emote };
 
 // Hat type descriptions
 export const HAT_TYPE_DESCRIPTIONS: Record<number, string> = {
